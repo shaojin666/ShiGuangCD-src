@@ -1,0 +1,2169 @@
+/* ============================================================
+   页面：音乐库 与 正在播放（标签页 · 3D 律动歌词 · 旋转唱片 · 传输条）
+   ============================================================ */
+
+/* ---------- 音乐库 ---------- */
+
+.lib-header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 30px;
+}
+
+.lib-title {
+  font-family: var(--font-display);
+  font-size: 24px;
+  letter-spacing: 0.16em;
+  color: var(--text);
+}
+
+.lib-count {
+  font-size: 12px;
+  color: var(--text-faint);
+  letter-spacing: 0.1em;
+}
+
+.lib-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+}
+
+.lib-header .seg-group { flex: none; margin-left: 18px; }
+
+/* ---------- CoverFlow 视图（v10.4：transform 驱动重写） ----------
+   交互模型：
+   - .lib-flow       视口（perspective + overflow hidden + 指针事件）
+   - .lib-flow-row   整行（唯一被平移的元素，translate3d 跟手 / 吸附）
+   - .lib-flow-item  每项（只按 --pos / --adist 做 3D 旋转 / 后撤 / 淡出）
+   - .lib-flow-top   选中项专辑名（视图中上方大字，过长则滚动）
+   - .lib-flow-meta  专辑名下方信息行（艺术家 · 年份 · 碟号 · 歌总数）
+   - .lib-flow-play  选中项封面下方的播放按钮（= 原版直接点专辑图）
+   滚轮 / 键盘直接改焦点并居中；鼠标拖动整行跟手，松口吸附到最近一张。 */
+
+#page-library.flow {
+  display: flex;
+  flex-direction: column;
+  padding: 18px 0 0 0;
+  overflow: hidden;
+  --flow-item: 236px;
+}
+
+#page-library.flow .lib-header { padding: 0 44px; margin-bottom: 0; flex: none; }
+
+/* 全屏时整体放大：--flow-item 同时驱动封面尺寸与播放按钮位置 */
+html.is-fullscreen #page-library.flow { --flow-item: 316px; }
+
+/* 选中项的专辑名：视图中上方大字（v10.5 起下移让页面更平衡），放不下则无缝滚动 */
+.lib-flow-top {
+  flex: none;
+  height: 48px;
+  margin: 16px 44px 0;
+  line-height: 48px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-shadow: 0 2px 24px var(--shadow);
+}
+
+/* 专辑名下方信息行：艺术家 · 年份 · 碟号 · 歌总数（v10.5） */
+.lib-flow-meta {
+  flex: none;
+  height: 22px;
+  margin: 0 44px 2px;
+  line-height: 22px;
+  text-align: center;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lib-flow-top-inner { display: inline-flex; align-items: baseline; white-space: nowrap; }
+
+/* 放不下 → marquee：克隆一份无缝衔接（与专辑详情页同一套语言） */
+.lib-flow-top.marquee { text-align: left; }
+.lib-flow-top.marquee .lib-flow-top-inner { animation: flowmarquee 15s linear infinite; }
+.lib-flow-top.marquee .lib-flow-top-clone { padding-left: 3.2em; }
+.lib-flow-top.marquee {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+}
+
+@keyframes flowmarquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-50% - 1.6em)); }
+}
+
+/* 视口：只负责透视与裁剪，几何全部由 transform 表达 */
+.lib-flow {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  perspective: 1500px;
+  perspective-origin: 50% 46%;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.lib-flow .lib-empty { flex: 1; padding: 40px 0; text-align: center; }
+
+/* 整行：唯一被 translate3d 平移的元素；
+   preserve-3d 把子项的 3D 变换纳入 .lib-flow 的透视上下文 */
+.lib-flow-row {
+  display: flex;
+  align-items: center;
+  flex: none;
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition: transform 0.45s var(--ease-cam);
+}
+
+.lib-flow-item {
+  position: relative;
+  flex: none;
+  width: var(--flow-item);
+  margin: 0 -13px;                     /* 相邻项轻微重叠，更接近 CoverFlow 的观感 */
+  transform-style: preserve-3d;
+  transform:
+    rotateY(calc(var(--pos, 0) * -58deg))
+    translateZ(calc(var(--adist, 0) * -150px))
+    scale(calc(1 - var(--adist, 0) * 0.05));
+  opacity: calc(1 - var(--adist, 0) * 0.18);
+  transition: transform 0.38s var(--ease-cam), opacity 0.38s ease;
+  cursor: pointer;
+}
+
+/* 拖动中：关掉过渡，几何严格跟手 */
+.lib-flow.flow-dragging .lib-flow-item,
+.lib-flow.flow-dragging .lib-flow-row { transition: none; }
+
+/* 焦点项：正在被键盘 / 滚轮 / 拖动选中的那张 */
+.lib-flow-item.focus .lib-flow-cover {
+  box-shadow: 0 24px 56px var(--shadow), 0 0 0 2px var(--accent);
+}
+
+.lib-flow-item.current .lib-flow-cover {
+  box-shadow: 0 18px 44px var(--shadow), 0 0 0 1px var(--accent);
+}
+
+.lib-flow-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  background-color: var(--surface-2);
+  background-image: var(--cover);
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 16px 38px var(--shadow-soft);
+}
+
+.lib-flow-cover.no-cover {
+  box-shadow: inset 0 0 0 1px var(--sheen);
+}
+
+/* 倒影：镜像 + 向下淡出 */
+.lib-flow-reflect {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 42%;
+  border-radius: 0 0 8px 8px;
+  background-image: var(--cover);
+  background-size: cover;
+  background-position: center;
+  transform: scaleY(-1);
+  opacity: 0.2;
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.5), transparent 88%);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.5), transparent 88%);
+  pointer-events: none;
+}
+
+/* 选中项封面下方的播放按钮（= 原版直接点专辑图：从第一首播放） */
+.lib-flow-play {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + var(--flow-item) / 2 + 20px);
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--glass);
+  box-shadow: 0 10px 30px var(--shadow-deep);
+  backdrop-filter: blur(14px);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: border-color 0.3s ease, color 0.3s ease,
+    transform 0.3s var(--ease-cam), opacity 0.3s ease;
+}
+
+.lib-flow-play:hover { border-color: var(--accent); color: var(--accent-strong); }
+.lib-flow-play:active { transform: translateX(-50%) scale(0.96); }
+
+/* 当前光驱里正是这张碟：描边提示 */
+.lib-flow-play.is-current { border-color: var(--accent); color: var(--accent-strong); }
+
+.lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  gap: 26px;
+}
+
+.lib-card {
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 14px 14px 16px 14px;
+  transition: background-color 0.3s ease, transform 0.3s var(--ease-cam), border-color 0.3s ease;
+}
+
+.lib-card:hover {
+  background: var(--surface-2);
+  transform: translateY(-3px);
+  border-color: var(--accent-soft);
+}
+
+.lib-card.current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+
+.lib-card-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
+  margin-bottom: 12px;
+}
+
+.lib-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.lib-card-cover .cover-fallback {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-2);
+}
+
+.lib-card-cover .cover-fallback::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 62%;
+  height: 62%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 1px var(--sheen),
+    inset 0 0 0 12px var(--accent-soft),
+    inset 0 0 0 13px var(--bar-line);
+}
+
+/* 碟号角标：贴在封面右下角，多碟专辑用来区分 disc1 / disc2 */
+.lib-card-cover .lib-card-disc {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 2;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--glass);
+  border: 1px solid var(--accent-soft);
+  backdrop-filter: blur(2px);
+  box-shadow: 0 1px 4px var(--shadow-soft);
+  pointer-events: none;
+}
+
+/* 手动改过碟号的卡片用实心强调色，一眼可辨 */
+.lib-card-cover .lib-card-disc.manual {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.lib-card-name {
+  font-family: var(--font-display);
+  font-size: 15px;
+  color: var(--text);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lib-card-artist {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lib-card-meta {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.05em;
+}
+
+.lib-card .lib-card-tag {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--accent-strong);
+  border: 1px solid var(--accent-soft);
+  border-radius: 3px;
+  padding: 1px 6px;
+  margin-left: 6px;
+}
+
+.lib-empty {
+  padding: 90px 0;
+  text-align: center;
+  color: var(--text-faint);
+}
+
+.lib-empty .lib-empty-mark {
+  font-family: var(--font-display);
+  font-size: 34px;
+  letter-spacing: 0.2em;
+  color: var(--line-strong);
+  margin-bottom: 18px;
+}
+
+.lib-empty p {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  line-height: 2;
+}
+
+/* ============================================================
+   正在播放页
+   ------------------------------------------------------------
+   三行栅格：标签栏（可自动隐藏） / 舞台（三个标签页） / 传输条（常驻）
+   ============================================================ */
+
+#page-nowplaying {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  /* 播放页不需要外层滚动条（内容永远装得下），歌词区自己滚且不显示滚动条 */
+  overflow: hidden;
+}
+
+.np-wrap {
+  flex: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  min-height: 0;
+}
+
+/* ---------- 自动隐藏式标签切换器 ---------- */
+
+.np-tabs {
+  position: relative;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 16px 0 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--line-soft);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 10px 30px var(--shadow-soft);
+  -webkit-app-region: no-drag;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.42s var(--ease-cam), transform 0.42s var(--ease-cam);
+}
+
+/* 收起态：只剩一条细提示线，鼠标靠近展开 */
+#page-nowplaying.tabs-away .np-tabs {
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
+}
+
+.np-tabs-grip {
+  position: absolute;
+  left: 50%;
+  top: -13px;
+  width: 54px;
+  height: 3px;
+  margin-left: -27px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.3;
+  transition: opacity 0.42s ease, width 0.42s var(--ease-cam);
+}
+
+#page-nowplaying.tabs-away .np-tabs-grip { opacity: 0.55; }
+#page-nowplaying:not(.tabs-away) .np-tabs-grip { opacity: 0; width: 20px; margin-left: -10px; }
+
+.np-tab {
+  position: relative;
+  z-index: 1;
+  /*
+   * ★ 尺寸走变量，不要在别处直接写 .np-tab 的 padding / font-size。
+   * 全屏时 `html.is-fullscreen` 只改这三个变量（见文件末尾），由这里统一消费。
+   *
+   * 之前全屏直接写了 `html.is-fullscreen #page-nowplaying .np-tab { padding: 9px 26px }`，
+   * 而那条规则带 #page-nowplaying，优先级 (1,2,1) **高过**收起规则的 (0,4,0)，
+   * 于是把"收起态"的 `padding-left/right: 0` 顶掉了。
+   * 而 padding 又是盒宽度的硬下限（max-width: 0 也压不下去），
+   * 结果两个本该 0 宽的标签各占 26+26 = 52px，标签栏凭空多出 104px 空白 ——
+   * 整条仍然居中，但可见的两个标签被推到右边，视觉上就是"错位"。
+   *
+   * 改成变量后：`.np-tab` 只有这一处写 padding，收起规则的 longhand
+   * `padding-left/right: 0` 优先级更高、依然稳赢，全屏再怎么放大也干扰不到它。
+   */
+  padding: var(--tab-pad-y, 7px) var(--tab-pad-x, 20px);
+  font-size: var(--tab-fs, 12px);
+  letter-spacing: 0.16em;
+  color: var(--text-dim);
+  border-radius: 999px;
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: color 0.28s ease, background-color 0.28s ease,
+    max-width 0.45s var(--ease-cam), padding 0.45s var(--ease-cam), opacity 0.3s ease;
+}
+
+.np-tab:hover { color: var(--text); }
+.np-tab.active { color: var(--accent-ink); background: var(--accent); }
+
+/* 并行视图：「唱片 / 歌词」收拢成一个按钮，合二为一 / 分开都有动画 */
+.np-tab.merge {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.np-tabs.split .np-tab[data-tab="cover"],
+.np-tabs.split .np-tab[data-tab="lyrics"] {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.np-tabs.split .np-tab.merge {
+  max-width: 200px;
+  /* 也走变量：全屏时与其它可见标签保持同样的横向内边距 */
+  padding-left: var(--tab-pad-x, 20px);
+  padding-right: var(--tab-pad-x, 20px);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ---------- 舞台与标签页 ---------- */
+
+.np-stage {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.np-panel {
+  position: relative;
+  inset: auto;
+  display: flex;
+  flex-direction: column;
+  /* flex-basis: 0 + min-width: 0 —— 未激活的标签页宽度为 0，
+     激活的按 flex-grow 分空间，于是"一个标签页"与"封面+歌词并排"
+     可以在同一套布局里靠 flex-grow 平滑过渡。 */
+  flex: 0 1 0%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 6px 60px 10px;
+  opacity: 0;
+  /* 这里必须用 pointer-events 而不是 visibility：
+     visibility 是可被子元素用 visible "顶回来"的，一旦给 .np-panel.on 写上
+     visibility: visible，未激活的播放页就会越过父级 .page 的 visibility: hidden，
+     变成"看不见但仍然拦截点击"的透明层 —— 音乐库的单击/右键会全部被它吃掉。 */
+  pointer-events: none;
+  transform: translateY(16px) scale(0.988);
+  transition: flex-grow 0.5s var(--ease-cam), padding 0.5s var(--ease-cam),
+    opacity 0.4s ease, transform 0.45s var(--ease-cam);
+}
+
+.np-panel:not(.on) {
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.np-panel.on {
+  flex: 1 1 0%;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+/* 并行视图：封面略窄、歌词略宽
+   ⚠ 同样必须带 .on。这条带 #page-nowplaying，优先级 (1,2,0) 高过
+   `.np-panel:not(.on) { padding: 0 }` 的 (0,2,0) —— 分屏模式下切到「曲目」时
+   歌词面板其实没显示，却仍然吃着 flex-grow:1.15 + 26px 内边距（实测占掉 734px），
+   把唱片面板挤到 681px，唱片和歌曲信息整体左移。 */
+#page-nowplaying.split .np-panel-cover.on { flex-grow: 1; }
+#page-nowplaying.split .np-panel-lyrics.on { flex-grow: 1.15; padding-left: 26px; padding-right: 26px; }
+#page-nowplaying.split .np-lyrics-head { display: none; }
+
+/* ---------- 标签页一：唱片 ---------- */
+
+.np-panel-cover {
+  align-items: center;
+  justify-content: center;
+  gap: 34px;
+  padding: 8px 40px 20px;
+}
+
+.np-disc-slot {
+  position: relative;
+  width: calc(var(--disc-base) * var(--disc-scale));
+  height: calc(var(--disc-base) * var(--disc-scale));
+  flex: none;
+  /* 静态 3D 俯仰：唱片本身已在逐帧旋转，这里不再叠第二层逐帧缩放 */
+  transform: perspective(1500px) rotateX(6deg);
+  transition: width 0.5s var(--ease-cam), height 0.5s var(--ease-cam), transform 0.6s var(--ease-cam);
+}
+
+/* 并行视图下唱片收小一点（只改基准，用户的缩放设置照常生效） */
+#page-nowplaying.split { --disc-base: 244px; }
+
+.np-disc {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--disc-base) * var(--disc-scale));
+  height: calc(var(--disc-base) * var(--disc-scale));
+  margin:
+    calc(var(--disc-base) * var(--disc-scale) / -2) 0 0
+    calc(var(--disc-base) * var(--disc-scale) / -2);
+  border-radius: 50%;
+  box-shadow: 0 18px 60px var(--shadow);
+  transition: transform 0.8s var(--ease-cam), opacity 0.6s ease,
+    width 0.5s var(--ease-cam), height 0.5s var(--ease-cam), margin 0.5s var(--ease-cam);
+}
+
+.np-disc-slot .np-disc-glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 128%;
+  height: 128%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-soft), transparent 68%);
+  filter: blur(46px);
+  /* 同背景层：被滤镜的元素只改 opacity（合成器属性），不做逐帧 transform */
+  opacity: calc(0.5 + var(--level) * 0.5);
+  will-change: opacity;
+  pointer-events: none;
+}
+
+.np-disc-slot.stopped .np-disc-glow { opacity: 0.14; }
+
+/*
+ * ⚠ 这里曾经还有第二条 `.np-disc` 规则，把 width/height/margin 写死成
+ *   340px / -170px。同优先级下**靠后的覆盖靠前的**，于是它把上面那条
+ *   基于 `calc(var(--disc-base) * var(--disc-scale))` 的规则整个顶掉了。
+ *
+ *   后果正好是"调唱片大小不起作用"：
+ *     · `.np-disc-slot` 用的是 calc → **会**跟着 --disc-scale 变；
+ *     · `.np-disc` 被写死 340px → 永远不变。
+ *   面板是 flex column，所以变化全落在"唱片下方的歌曲信息"上（被顶得上下跑），
+ *   而唱片本身因为恒大于插槽、又��� `overflow: hidden` 裁掉，看起来完全没动。
+ *   —— 这就是"调的其实是下方信息位置"的成因。
+ *
+ *   现在只保留 483 行那一条 calc 版本。上面的属性（定位/圆角/阴影/过渡）
+ *   它已经全有了，不需要第二条。**别再加回来了。**
+ */
+
+/* 换碟交接时不要过渡 */
+.np-disc.handoff { transition: none; }
+
+/* 窗口偏矮时整体缩小唱片，避免和传输条挤在一起。
+   必须排在 .np-disc 基础规则之后：同优先级下后者会被覆盖。 */
+@media (max-height: 800px) {
+  #page-nowplaying { --disc-base: 272px; }
+  .np-panel-cover { gap: 24px; }
+}
+
+@media (max-height: 680px) {
+  #page-nowplaying { --disc-base: 208px; }
+  .np-title { font-size: 22px; }
+}
+
+/* 需求：专辑图片的转动随歌曲暂停而暂停。
+   播放页里的 .disc-spin 默认冻结，只有带 .is-spinning（播放中）才转。 */
+.np-wrap .disc-spin { animation-play-state: paused; }
+.np-wrap .disc-spin.is-spinning { animation-play-state: running; }
+
+/* ---------- 方形封面（v10.6，设置页切换；默认仍是上面的旋转唱片） ---------- */
+
+/*
+ * 语义：方形样式下封面就是一张"专辑封面"—— 不转、无中孔、无光盘纹路；
+ * 暂停时缩小、播放时放大。切换与缩放都走非线性曲线，有一点"弹"的手感。
+ *
+ * ★ 缩放为什么挂在 .np-disc-slot 而不是 .np-disc：换碟交接时 JS 会在
+ *   .np-disc 上写行内 transform（handoffFromScene / settle），行内样式
+ *   会钉死任何 CSS 缩放；而 .np-disc-slot 没有任何 JS 写行内 transform，
+ *   状态类（playing / paused / stopped）由 setPlayState 维护，正好承载它。
+ */
+#page-nowplaying.cover-square .np-disc-slot {
+  /* 丢掉唱片的 3D 俯仰：方形封面是一张平放的卡片 */
+  transform: perspective(1500px) scale(0.9);
+  /* 回弹曲线：暂停↔播放的缩放"弹"一下，比纯 ease 有生命感 */
+  transition: width 0.5s var(--ease-cam), height 0.5s var(--ease-cam),
+    transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+#page-nowplaying.cover-square .np-disc-slot.playing {
+  transform: perspective(1500px) scale(1);
+}
+
+#page-nowplaying.cover-square .np-disc {
+  border-radius: 16px;
+  /* 专辑封面阴影：比唱片更聚拢，像一张卡 */
+  box-shadow: 0 18px 60px var(--shadow);
+  /* 圆角也进过渡：唱片↔方形切换时是"圆角长出来"，不是硬跳 */
+  transition: transform 0.8s var(--ease-cam), opacity 0.6s ease,
+    width 0.5s var(--ease-cam), height 0.5s var(--ease-cam), margin 0.5s var(--ease-cam),
+    border-radius 0.45s var(--ease-cam);
+}
+
+/* 方形下光盘纹路没有意义：统一用"有封面"的简洁内描边。
+   ★ 必须收窄到 .np-disc（主唱片）：.disc-face 是通用类，传输条里的
+   迷你唱片（.np-mini-disc > .disc-face）也是它——不加作用域会把迷你
+   唱片一起改成方角 / 去纹路（v10.7 用户实测：圆容器包方背景）。 */
+#page-nowplaying.cover-square .np-disc .disc-face {
+  box-shadow:
+    inset 0 0 0 2px var(--sheen),
+    inset 0 0 24px rgba(0, 0, 0, 0.28);
+}
+
+/* ★ v10.7 修复"方容器包圆图"：v10.6 只圆角化了 .np-disc 外壳，
+   里面的 .disc-face / .disc-spin 仍是 scene.css 的 50% 圆角——
+   方形模式下封面图依然是个圆。这里把"图本身"也切成 16px 方角。
+   同样只作用于 .np-disc：迷你唱片在任何模式下都保持圆形。 */
+#page-nowplaying.cover-square .np-disc .disc-spin,
+#page-nowplaying.cover-square .np-disc .disc-face {
+  border-radius: 16px;
+}
+
+/* 永不旋转：ID 选择器压过 .np-wrap .disc-spin.is-spinning 的 running。
+   只停主唱片——迷你唱片照转（它不属于封面样式，是传输条的常驻部件）。 */
+#page-nowplaying.cover-square .np-disc .disc-spin { animation: none; }
+
+/* 方形封面没有中孔（仅主唱片；迷你唱片的中孔是它的造型一部分） */
+#page-nowplaying.cover-square .np-disc .disc-hole { display: none; }
+
+/* v10.7：设置页「唱片中心圆孔」开关（默认开）。关掉后唱片模式也隐藏中孔 */
+#page-nowplaying.no-hole .np-disc .disc-hole { display: none; }
+
+/* 背后的辉光也跟着变方：方封面配一个圆光晕会很怪 */
+#page-nowplaying.cover-square .np-disc-glow { border-radius: 22px; }
+
+.np-info {
+  text-align: center;
+  max-width: 520px;
+}
+
+.np-title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-artist {
+  margin-top: 8px;
+  font-size: 15px;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+}
+
+.np-albumline {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+}
+
+.np-trackline {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--accent-strong);
+  letter-spacing: 0.16em;
+}
+
+/* ---------- 标签页二：3D 律动歌词 ---------- */
+
+.np-panel-lyrics,
+.np-panel-tracks {
+  padding: 6px 60px 10px;
+}
+
+/* 歌词背后的柔和压暗：背景是"当前专辑的模糊图"，亮色专辑下
+   非当前行的浅色文字会糊掉，这里只在文字区加一层薄薄的暗角。
+   浅色主题用更实的 --read-scrim（见 base.css），压得住深色封面。 */
+.np-panel-lyrics::before,
+.np-panel-tracks::before {
+  content: "";
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  top: 2%;
+  bottom: 2%;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(58% 52% at 50% 50%, var(--read-scrim), transparent 80%);
+}
+
+#page-nowplaying.split .np-panel-lyrics::before,
+#page-nowplaying.split .np-panel-tracks::before { left: 0; right: 0; }
+
+.np-lyrics-head {
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+  flex: none;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* 「译 / 音」开关：只有模型带对应轨时才出现 */
+.lrc-toggles {
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+}
+.lrc-tg {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.14));
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+.lrc-tg:hover { color: var(--text-dim); }
+.lrc-tg.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.np-lyrics {
+  flex: 1;
+  overflow-y: auto;
+  /* ★ 必须显式 hidden：overflow-y:auto 会把 overflow-x 计算成 auto，
+   * 于是鼓点缩放（.lrc-inner scale 1.11 + translateX ±4px）与激活行
+   * 150% 宽的光晕会把歌词区撑出横向滚动区——滚动条被隐藏了但滚动
+   * 能力还在，长句播放时整个页面看着往右跑。裁掉横向溢出即可，
+   * 纵向滚动不受影响。 */
+  overflow-x: hidden;
+  position: relative;
+  z-index: 1;
+  perspective: 1000px;                 /* 3D 纵深 */
+  perspective-origin: 50% 46%;
+  scroll-behavior: smooth;
+  /* 不显示滚动条，但保留滚动能力（歌词居中/滚动浏览都需要） */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  mask-image: linear-gradient(180deg, transparent, #000 16%, #000 84%, transparent);
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 16%, #000 84%, transparent);
+}
+
+.np-lyrics::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+.np-lyrics::before,
+.np-lyrics::after {
+  content: "";
+  display: block;
+  height: 40%;
+}
+
+.lrc-line {
+  --d: 0;                              /* 有符号行距：正=当前行下方 */
+  --ad: 0;                             /* 行距绝对值：用于后撤与淡出 */
+  position: relative;
+  padding: 11px 0;
+  text-align: center;
+  font-size: calc(var(--lyric-base) * var(--lyric-scale));
+  line-height: 1.6;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  /* 长词/长外文条题（译音轨、外文歌词）宁可断行也不撑横向溢出；
+   * overflow-wrap 可继承，词级 span 与译文小字都受约束 */
+  overflow-wrap: anywhere;
+  transform-origin: 50% 50%;
+  transform:
+    translateZ(calc(var(--ad) * -32px))
+    rotateX(calc(var(--d) * 5deg))
+    scale(calc(1 - var(--ad) * 0.03));
+  opacity: calc(1 - var(--ad) * 0.085);
+  transition: transform 0.5s var(--ease-cam), opacity 0.5s ease, color 0.4s ease;
+}
+
+/* 鼓点层：只在鼓点脉冲期间做"震动 + 放大"，因此单独放一层，
+   上面那层的 0.5s 过渡不会把鼓点反应拖慢。
+   --mz 是"鼠标放大镜"：用户手动滚动歌词时，鼠标附近的行会变大。 */
+.lrc-inner {
+  display: inline-block;
+  transform:
+    translateX(calc(var(--beat) * var(--beat-dir) * 4px))
+    scale(calc((1 + var(--beat) * 0.11) * (1 + var(--mz, 0) * 0.14)));
+}
+
+.lrc-line:hover { color: var(--text-dim); }
+
+.lrc-line.active {
+  color: var(--text);
+  font-size: calc(var(--lyric-active-base) * var(--lyric-scale));
+  letter-spacing: 0.09em;
+}
+
+.lrc-line.active .lrc-inner {
+  color: var(--text);
+}
+
+/* 浏览态（用户正在手动滚动）：
+   1) 全部歌词回到同一个字号 —— 不再因为"当前行"忽大忽小，方便阅读；
+   2) 景深压到很浅（仍保留一点立体感，但不会把远处行缩得看不清）；
+   3) 去掉鼓点缩放，鼠标移到哪行哪行才变大；
+   4) 过渡加快，滚动时更跟手。
+   用户停止操作后，class 被摘掉，自动回到原来的 3D + 鼓点样式。 */
+.np-lyrics.manual .lrc-line {
+  font-size: calc(var(--lyric-manual-base) * var(--lyric-scale));
+  transform:
+    translateZ(calc(var(--adist) * -12px))
+    rotateX(calc(var(--d) * 2deg))
+    scale(calc(1 - var(--adist) * 0.012));
+  opacity: calc(1 - var(--adist) * 0.045);
+  transition: transform 0.32s var(--ease-cam), opacity 0.32s ease, color 0.3s ease;
+}
+
+.np-lyrics.manual .lrc-line.active {
+  font-size: calc(var(--lyric-manual-base) * var(--lyric-scale));
+  letter-spacing: 0.06em;
+}
+
+.np-lyrics.manual .lrc-inner {
+  transform: scale(calc(1 + var(--mz, 0) * 0.16));
+}
+
+/* 当前行背后的光晕，随鼓点一亮一暗 */
+.lrc-line.active::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 150%;
+  height: 220%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(50% 50% at 50% 50%, var(--accent-soft), transparent 70%);
+  opacity: calc(0.2 + var(--beat) * 0.8);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.lrc-line.active::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 14px;
+  vertical-align: middle;
+  transform: scale(calc(1 + var(--beat) * 1.5));
+}
+
+/* ================================================================
+ * 逐字歌词（统一模型路径，lyrics-view.js 生成的结构）
+ *   .lrc-line > .lrc-inner > .lrc-w（词）
+ *             > .lrc-bg（对唱/背景人声，内部也是 .lrc-w）
+ *             > .lrc-tr（译文小字）/ .lrc-ro（罗马音小字）
+ * ================================================================ */
+
+/* 词级卡拉OK填充：--wp（0~1）由 JS 每帧写入。
+   渐变 + background-clip:text 让"已唱部分"用亮色、"未唱部分"用暗色，
+   不重建文本节点，60fps 也无布局抖动。非当前行不启用（无逐帧成本）。 */
+.lrc-w {
+  position: relative;
+  white-space: pre-wrap;
+}
+.lrc-line.active .lrc-w {
+  background-image: linear-gradient(90deg,
+    var(--text) 0%, var(--text) calc(var(--wp, 0) * 100%),
+    var(--text-dim) calc(var(--wp, 0) * 100%), var(--text-dim) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* 译文 / 罗马音：附在主行下方的小字，显隐由 .np-lyrics.no-tr / .no-ro 控制 */
+.lrc-tr,
+.lrc-ro {
+  display: block;
+  margin-top: 3px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  font-family: var(--font-body, inherit);
+}
+.lrc-tr {
+  /* 译文小字：主字号的 0.56 倍，再乘用户可调的 --lyric-tr-scale
+   * （设置 → 歌词与唱片大小 →「翻译」滑条，0.6~1.8） */
+  font-size: calc(var(--lyric-base) * 0.56 * var(--lyric-tr-scale, 1));
+  color: var(--text-faint);
+}
+.lrc-ro {
+  /* 罗马音小字：主字号的 0.5 倍，再乘用户可调的 --lyric-ro-scale
+   * （设置 → 歌词与唱片大小 →「罗马音」滑条，0.6~1.8，v10.6 新增） */
+  font-size: calc(var(--lyric-base) * 0.5 * var(--lyric-ro-scale, 1));
+  color: var(--text-faint);
+  opacity: 0.85;
+  font-style: italic;
+}
+.np-lyrics.no-tr .lrc-tr { display: none; }
+.np-lyrics.no-ro .lrc-ro { display: none; }
+
+/* 对唱 / 背景人声：跟在主行下方。
+ * v10.7：字号从 0.62 提到 0.78，并乘 --lyric-scale —— 旧值不随设置里的
+ *   "歌词大小"变化，用户反馈"背景歌词偏小且不受控制"；提比值 + 跟随缩放后，
+ *   配合下面的渐变填充（--text-dim → --text-faint）在大字号下可辨。 */
+.lrc-bg {
+  display: block;
+  margin-top: 4px;
+  font-size: calc(var(--lyric-base) * 0.78 * var(--lyric-scale));
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+/* v10.7 对唱排版（amll 风格，取代 v10.6 的 has-bg 方案）：
+ * 含对唱的歌（容器 .np-lyrics.duet，由 lyrics-view.js 按整首歌判定）——
+ *   1) 所有非对唱行（主唱，含译/音小字）靠右；
+ *   2) 对唱主行（自身 agent 且非主唱）靠左；
+ *   3) 背景声跟随所属行：对唱条的 bg（带 agent）靠左，主唱行的 x-bg 靠右。
+ * 不含对唱的歌：.duet 不存在，全部维持默认居中。
+ * 用 text-align 而非 flex：行首的"当前行圆点"是行内元素，改 flex 会把它
+ * 挤成独立一行的 Flex Item，把整行的排版打乱。 */
+.np-lyrics.duet .lrc-line { text-align: right; }
+.np-lyrics.duet .lrc-line.duet-line { text-align: left; }
+.np-lyrics.duet .lrc-line .lrc-bg { text-align: right; }
+.np-lyrics.duet .lrc-line .lrc-bg.bg-duet { text-align: left; }
+.np-lyrics.duet .lrc-line.duet-line .lrc-bg { text-align: left; }
+.lrc-line.active .lrc-bg { color: var(--text-dim); }
+.lrc-line.active .lrc-bg .lrc-w {
+  background-image: linear-gradient(90deg,
+    var(--text-dim) 0%, var(--text-dim) calc(var(--wp, 0) * 100%),
+    var(--text-faint) calc(var(--wp, 0) * 100%), var(--text-faint) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* 间奏占位行：♪ 呼吸 */
+.lrc-line.inst .lrc-inner {
+  color: var(--accent);
+  animation: lrc-inst-breathe 2.6s ease-in-out infinite;
+}
+@keyframes lrc-inst-breathe {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.85; }
+}
+
+.lrc-empty {
+  color: var(--text-faint);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  line-height: 2;
+  text-align: center;
+  padding-top: 26%;
+  white-space: pre-line;
+}
+
+/* ---------- 标签页三：曲目 ---------- */
+
+.np-tracklist {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 12px;
+  scrollbar-width: none;
+}
+
+.np-tracklist::-webkit-scrollbar { display: none; }
+
+.np-track {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: 8px;
+  text-align: left;
+  color: var(--text-dim);
+  /* 行底铺一层薄玻璃：浅色主题遇到深色专辑封面时，文字始终有底色可依。
+     直接用元素自身的 background，不靠 z-index:-1 的伪元素（避免层叠顺序坑）。 */
+  background: var(--glass);
+  transition: background-color 0.22s ease, color 0.22s ease;
+}
+
+.np-track:hover { background: var(--surface-3); color: var(--text); }
+
+.np-track-num {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  min-width: 22px;
+}
+
+.np-track-name {
+  flex: 1;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-track-dur {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.np-track.current { color: var(--text); background-color: var(--accent-soft); }
+.np-track.current .np-track-num { color: var(--accent-strong); }
+.np-track.disabled { opacity: 0.4; }
+
+/* ---------- 全屏：把唱片与歌词整体放大 ---------- */
+/* 只改基准尺寸；用户在设置里调过的 --disc-scale / --lyric-scale 照常生效。
+   ★ .split 挂在 #page-nowplaying 上，不在 <html> 上，所以并行 + 全屏
+     的组合必须写成后代选择器，否则永远匹配不到。 */
+html.is-fullscreen #page-nowplaying {
+  --disc-base: 440px;
+  --lyric-base: 22px;
+  --lyric-active-base: 28px;
+  --lyric-manual-base: 24px;
+}
+
+html.is-fullscreen #page-nowplaying.split {
+  --disc-base: 330px;
+  --lyric-base: 19px;
+  --lyric-active-base: 24px;
+}
+
+html.is-fullscreen #page-nowplaying .np-tabs { margin-top: 26px; }
+  /* 标签尺寸只改变量，不再直接覆盖 .np-tab 的 padding / font-size。
+     直接写 padding 会盖掉"收起态"的 padding:0（那条带 #page-nowplaying 的规则
+     优先级更高），让本该 0 宽的隐藏标签重新占位 —— 详见 .np-tab 上的注释。 */
+  html.is-fullscreen #page-nowplaying {
+    --tab-pad-y: 9px;
+    --tab-pad-x: 26px;
+    --tab-fs: 14px;
+  }
+
+html.is-fullscreen .np-panel-cover { gap: 40px; }
+html.is-fullscreen .np-title { font-size: 34px; }
+html.is-fullscreen .np-artist { font-size: 18px; }
+
+/* ⚠ 这两条必须带 .on。
+     未激活的面板靠 `.np-panel:not(.on) { padding-left/right: 0 }` 收成 0 宽
+     （优先级 (0,2,0)）。下面这条全屏规则原本是 (0,2,1) —— 只多一个元素选择器 `html`，
+     就把上面那条**顶掉了**：隐藏的歌词 / 曲目面板各被塞进 90+90=180px 内边距，
+     两个合计从当前面板手里抢走 360px，于是唱片和歌曲信息整体左移、看起来没居中。
+     加上 .on 后只作用于真正显示的面板，隐藏面板继续保持 0 宽。 */
+html.is-fullscreen .np-panel-lyrics.on,
+html.is-fullscreen .np-panel-tracks.on { padding-left: 90px; padding-right: 90px; }
+/* 同理带 .on：分屏模式下若切到了"曲目"，歌词面板是隐藏的，不该占位 */
+html.is-fullscreen #page-nowplaying.split .np-panel-lyrics.on,
+html.is-fullscreen #page-nowplaying.split .np-panel-tracks.on { padding-left: 40px; padding-right: 40px; }
+
+html.is-fullscreen .lrc-line { padding: 14px 0; }
+
+html.is-fullscreen .np-track { padding: 13px 18px; }
+html.is-fullscreen .np-track-name { font-size: 16px; }
+
+html.is-fullscreen .np-transport { padding: 18px 34px 20px; }
+html.is-fullscreen .ctl-btn { width: 50px; height: 50px; }
+html.is-fullscreen .ctl-btn.primary { width: 70px; height: 70px; }
+html.is-fullscreen .np-now-title { font-size: 15px; }
+html.is-fullscreen .np-now-artist { font-size: 12px; }
+html.is-fullscreen .np-mini-disc { width: 56px; height: 56px; }
+
+/* ---------- 传输条（常驻页脚） ----------
+   两行栅格：
+     第一行  [迷你碟 + 歌名] ... [主控] ... [音量 + 沉浸]
+     第二行  [ 进度条 ................................ 播放模式 · 并行 · 编辑 · 出舱 ]
+   第一行用 1fr auto 1fr —— 中间一列由内容决定宽度、两侧等分，
+   因此播放控件在任何窗口宽度（含全屏）下都严格居中。 */
+
+.np-transport {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  grid-template-areas:
+    "now center tools"
+    "sub sub sub";
+  align-items: center;
+  gap: 4px 20px;
+  padding: 12px 22px 14px;
+  background: var(--glass);
+  border-top: 1px solid var(--line-soft);
+  backdrop-filter: blur(20px);
+}
+
+.np-now {
+  grid-area: now;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.np-center {
+  grid-area: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.np-tools {
+  grid-area: tools;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.np-sub {
+  grid-area: sub;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* 迷你唱片：任何标签页下都在转（跟随播放状态） */
+.np-mini-disc {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 6px 18px var(--shadow-soft);
+  transform: scale(calc(1 + var(--beat) * 0.05));
+}
+
+.np-mini-disc .disc-spin {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  animation: discspin 11s linear infinite;
+}
+
+.np-mini-disc .disc-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--surface-3);
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 0 0 1px var(--sheen), inset 0 0 0 8px rgba(0, 0, 0, 0.16);
+}
+
+.np-mini-disc .disc-hole {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.np-now-text { min-width: 0; }
+
+.np-now-title {
+  font-size: 13px;
+  color: var(--text);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-now-artist {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* 主控制 */
+.np-controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.ctl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  color: var(--text);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  transition: background-color 0.25s ease, color 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
+}
+
+.ctl-btn:hover { background: var(--surface-3); border-color: var(--line-strong); transform: translateY(-1px); }
+.ctl-btn:active { transform: scale(0.94); }
+
+.ctl-btn.primary {
+  width: 58px;
+  height: 58px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.ctl-btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+
+.ctl-btn:disabled { opacity: 0.35; }
+
+.np-sub .np-seek {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 进度条 */
+.np-seek {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.np-time {
+  font-size: 12px;
+  color: var(--text-faint);
+  min-width: 46px;
+  text-align: center;
+}
+
+input[type="range"].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 22px;
+  background: transparent;
+  flex: 1;
+  min-width: 0;
+}
+
+input[type="range"].slider::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+input[type="range"].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  transition: transform 0.2s ease;
+}
+
+input[type="range"].slider:hover::-webkit-slider-thumb { transform: scale(1.15); }
+input[type="range"].slider:disabled::-webkit-slider-thumb { background: var(--line-strong); }
+
+/* 滑块悬浮提示（v10.6）：鼠标在进度条/音量条上移动时，光标上方
+   实时显示对应位置的时间/音量，跟随鼠标左右移动 */
+.slider-hint {
+  position: fixed;
+  z-index: 200;
+  transform: translate(-50%, -100%);
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: 0 6px 20px var(--shadow);
+  transition: opacity 0.15s ease;
+}
+.slider-hint.on { opacity: 1; }
+
+/* 次级控制 */
+.np-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: none;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: color 0.25s ease, border-color 0.25s ease, background-color 0.25s ease;
+  white-space: nowrap;
+}
+
+.mode-btn.icon-only { padding: 6px; }
+
+.mode-btn:hover { color: var(--text); }
+
+.mode-btn.active,
+.mode-btn.on {
+  color: var(--accent-strong);
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+}
+
+.vol-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+}
+
+.vol-wrap input[type="range"].slider { width: 84px; min-width: 70px; flex: none; }
+
+.vol-wrap.disabled { opacity: 0.35; }
+
+/* ---------- 音乐库右键菜单 ---------- */
+.ctx-menu {
+  position: fixed;
+  z-index: 120;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 18px 44px var(--shadow);
+}
+
+.ctx-menu.hidden {
+  display: none;
+}
+
+.ctx-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  letter-spacing: 0.04em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ctx-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.ctx-item.danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ctx-hint {
+  padding: 6px 12px 8px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--line-soft);
+}
+
+/* ============================================================
+   v10.7：音乐库角落工具 + 移除确认框
+   ------------------------------------------------------------
+   - .lib-fab-eject   右下角圆形按钮：有碟退碟 / 无碟弹托盘，
+     默认 opacity:0 且不收指针，鼠标靠近（.near）才淡入；
+   - .lib-search      左下角搜索：放大镜 + 展开的搜索栏；
+   - .lib-confirm     移除确认对话框（挂在 body 上，全App通用）。
+   两个按钮用 position:fixed —— .page 是滚动容器，absolute 会
+   跟着列表滚走；页面不可见时 .page 的 visibility:hidden 会级联
+   隐藏它们，不会串页。
+   ============================================================ */
+
+.lib-fab {
+  position: fixed;
+  z-index: 60;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--text-dim);
+  background: var(--surface-2, rgba(255, 255, 255, 0.05));
+  box-shadow: 0 8px 28px var(--shadow);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.82);
+  transition: opacity 0.35s ease, transform 0.35s var(--ease-cam),
+    color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.lib-fab.near {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.lib-fab:hover {
+  color: var(--accent-strong);
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+}
+
+.lib-fab-eject {
+  right: 30px;
+  bottom: 30px;
+}
+
+/* 左下角搜索：按钮与展开的面板同一行 */
+.lib-search {
+  position: fixed;
+  left: 30px;
+  bottom: 30px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lib-search .lib-fab-search {
+  position: static;                        /* 覆盖 .lib-fab 的 fixed */
+  flex: none;
+}
+
+/* 展开时常亮（输入时鼠标可能离按钮较远，不能淡出） */
+.lib-search.open .lib-fab-search {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.lib-search-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 8px 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 23px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.05));
+  box-shadow: 0 8px 28px var(--shadow);
+  transform-origin: left center;
+  transition: opacity 0.28s ease, transform 0.28s var(--ease-cam);
+}
+
+.lib-search-panel.hidden {
+  display: none;
+}
+
+.lib-search-panel input {
+  width: 250px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.lib-search-panel input::placeholder {
+  color: var(--text-faint);
+}
+
+.lib-search-count {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.lib-search-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.lib-search-close:hover {
+  color: var(--text);
+  background: var(--line-soft);
+}
+
+/* 无匹配的空态马克换成"无"（见 library.js rebuildItems） */
+
+/* ---------- 移除确认对话框（v10.7） ---------- */
+.lib-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lib-confirm.hidden {
+  display: none;
+}
+
+.lib-confirm-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  animation: confirm-fade 0.25s ease;
+}
+
+.lib-confirm-card {
+  position: relative;
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  padding: 26px 28px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 28px 80px var(--shadow-deep);
+  animation: confirm-in 0.3s var(--ease-cam);
+}
+
+.lib-confirm-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  color: var(--text);
+}
+
+.lib-confirm-msg {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.75;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+}
+
+.lib-confirm-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.lib-confirm-btns button {
+  min-width: 84px;
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.lib-confirm-btns button:hover {
+  color: var(--text);
+  background: var(--line-soft);
+}
+
+.lib-confirm-ok {
+  border-color: var(--danger-soft) !important;
+  color: var(--danger) !important;
+}
+
+.lib-confirm-ok:hover {
+  background: var(--danger-soft) !important;
+  color: var(--danger) !important;
+}
+
+@keyframes confirm-fade {
+  from { opacity: 0; }
+}
+
+@keyframes confirm-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+}
+/* ============================================================
+   专辑详情页（v10.4）—— 选歌 / 专辑介绍 · 一镜到底
+   ------------------------------------------------------------
+   同一批元素在两个 Tab 间位移，不做页面重建：
+     - 曲目页（默认）：专辑图在左侧（3D 偏向右侧），曲目列表在右侧，
+       大字专辑名在列表上方；胶囊「曲目」在右且高亮；
+     - 专辑页：专辑图移到右侧（3D 偏向左侧），左侧显示专辑/歌手介绍，
+       专辑名移到介绍上方；胶囊「专辑」高亮。
+   ============================================================ */
+
+.album-overlay {
+  z-index: 70;
+  display: block;                       /* 覆盖 .overlay 的 flex 居中 */
+  background: var(--bg);
+  backdrop-filter: none;
+  overflow: hidden;
+  animation: albumin 0.45s var(--ease-cam);
+  /* v10.6 可读性：本页是自包含的暗色沉浸空间（scrim 恒暗），
+     文字色板由 album.js 按取色亮度计算后写入；这里的默认值即
+     "暗底亮字"，取色异步到达前也不会闪深色文字。 */
+  --al-fg: #f6f1e7;
+  --al-fg-dim: rgba(246, 241, 231, 0.8);
+  --al-fg-faint: rgba(246, 241, 231, 0.56);
+  --al-hover: rgba(255, 255, 255, 0.09);
+  --al-line: rgba(255, 255, 255, 0.16);
+  /* chrome 也强制走暗色一套：浅色主题的 --glass/--line/--accent-strong
+     是亮色系，用在暗底上会糊（按钮/胶囊/高亮行） */
+  --glass: rgba(16, 16, 20, 0.58);
+  --line: rgba(255, 255, 255, 0.14);
+  --surface-3: rgba(255, 255, 255, 0.1);
+  --accent-strong: #e0bc7c;
+}
+
+@keyframes albumin {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.album-overlay.closing {
+  animation: albumout 0.24s ease forwards;
+}
+
+@keyframes albumout {
+  to { opacity: 0; }
+}
+
+/* 封面打开时锁住背景滚动 */
+html.album-open body { overflow: hidden; }
+
+/* ---------- 背景：封面取色渐变 / 封面模糊兜底 ---------- */
+
+.al-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.al-bg-art {
+  position: absolute;
+  inset: -14%;
+  background-size: cover;
+  background-position: center;
+  filter: blur(72px) saturate(1.55);
+  transform: scale(1.12);
+  opacity: 0;
+  transition: opacity 0.9s ease;
+}
+
+.album-overlay.has-art .al-bg-art { opacity: 0.5; }
+
+/*
+ * 取色成功时：两层径向渐变（主色 + 均值色）铺出"封面颜色的光晕"，
+ * 再压一层上深下深的线性 scrim 保证文字可读；
+ * 取色失败时 --al-c1/--al-c2 未定义 → 径向渐变透明 → 只剩 scrim，
+ * 背景由 .al-bg-art 的封面模糊兜底。
+ *
+ * v10.6：scrim 强度走 CSS 变量 —— 无取色时 album.js 会把 --al-scrim-a/b
+ * 加到最实（浅色主题下封面模糊很亮，默认强度压不住）；渐变核心色已被
+ * album.js 压过亮度（clampForText ≤ 0.22），不会吞掉文字。
+ */
+.al-bg-tint {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(115% 85% at 16% 18%, var(--al-c1, transparent), transparent 62%),
+    radial-gradient(105% 95% at 88% 88%, var(--al-c2, transparent), transparent 58%),
+    linear-gradient(180deg,
+      var(--al-scrim-a, rgba(8, 8, 10, 0.78)),
+      var(--al-scrim-b, rgba(8, 8, 10, 0.93)) 68%,
+      rgba(8, 8, 10, 0.95));
+}
+
+/* ---------- 舞台 ---------- */
+
+.al-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  --art-w: clamp(220px, 25vw, 330px);
+  --art-gap: 7vw;
+  perspective: 1400px;
+}
+
+.al-close {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  z-index: 5;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--al-line);
+  border-radius: 10px;
+  background: var(--glass);
+  color: var(--al-fg-dim);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.al-close:hover {
+  color: var(--al-fg);
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+/* ---------- 专辑图：外层槽位移（Tab），内层 FLIP 入场 ---------- */
+
+.al-art-slot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--art-w);
+  height: var(--art-w);
+  transform: translate(-50%, -50%) translateX(calc(-1 * (50vw - var(--art-gap) - var(--art-w) / 2))) rotateY(14deg);
+  transition: transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.album-overlay.tab-album .al-art-slot {
+  transform: translate(-50%, -50%) translateX(calc(50vw - var(--art-gap) - var(--art-w) / 2)) rotateY(-14deg);
+}
+
+.al-art {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.55s ease;
+  will-change: transform;
+}
+
+.al-art-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: var(--surface-2) center / cover no-repeat;
+  box-shadow:
+    0 30px 80px var(--shadow-deep),
+    0 0 0 1px var(--sheen),
+    0 0 90px -20px var(--al-c1, transparent);
+}
+
+/* 无封面：画一张"空白碟"的占位（与音乐库封面兜底同语言） */
+.al-art-face:not(.has-cover)::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 58%;
+  height: 58%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 1px var(--sheen),
+    inset 0 0 0 10px var(--accent-soft),
+    inset 0 0 0 11px var(--bar-line);
+}
+
+/* 封面取色的辉光（专辑页跟在图右侧，曲目页在左侧） */
+.al-art-glow {
+  position: absolute;
+  inset: 8% -6% -6% -6%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--al-c1, transparent), transparent 72%);
+  filter: blur(38px);
+  opacity: 0.75;
+  transform: translateZ(-60px);
+  pointer-events: none;
+}
+
+.al-art-badge {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--al-fg);
+  background: var(--glass);
+  border: 1px solid var(--accent-soft);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+
+/* ---------- 大字专辑名（Tab 间从右侧移到左侧） ---------- */
+
+.al-title {
+  position: absolute;
+  top: clamp(64px, 9vh, 108px);
+  left: calc(var(--art-gap) + var(--art-w) + 3.4vw);
+  right: var(--art-gap);
+  z-index: 3;
+  transition: left 0.65s cubic-bezier(0.22, 1, 0.36, 1), right 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.album-overlay.tab-album .al-title {
+  left: var(--art-gap);
+  right: calc(var(--art-gap) + var(--art-w) + 3.4vw);
+}
+
+.al-title-inner {
+  position: relative;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 3.2vw, 50px);
+  line-height: 1.18;
+  letter-spacing: 0.03em;
+  color: var(--al-fg);
+  text-shadow: 0 4px 30px var(--shadow-deep);
+  transition: color 0.4s ease;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;               /* 最多双行 */
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* 两行还放不下 → marquee：单行横向滚动，克隆一份无缝衔接 */
+.al-title.marquee .al-title-inner {
+  display: flex;
+  -webkit-line-clamp: unset;
+  white-space: nowrap;
+  overflow: visible;
+  animation: almarquee 14s linear infinite;
+}
+
+.al-title.marquee .al-title-inner .al-title-clone { padding-left: 3.2em; }
+
+@keyframes almarquee {
+  from { transform: translateX(0); }
+  /* -50% 再补半个间距：两份文本宽度 + 间距正好一轮，无缝衔接 */
+  to { transform: translateX(calc(-50% - 1.6em)); }
+}
+
+.al-sub {
+  margin-top: 10px;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  color: var(--al-fg-dim);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------- 两个面板（曲目右 / 介绍左，交叉位移） ---------- */
+
+.al-panel {
+  position: absolute;
+  top: clamp(150px, 24vh, 230px);
+  bottom: 108px;
+  width: calc(100% - var(--art-gap) * 2 - var(--art-w) - 3.4vw);
+  transition: opacity 0.5s ease, transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
+}
+
+.al-tracks {
+  right: var(--art-gap);
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.album-overlay.tab-album .al-tracks {
+  opacity: 0;
+  transform: translateX(46px);
+  pointer-events: none;
+}
+
+.al-intro {
+  left: var(--art-gap);
+  opacity: 0;
+  transform: translateX(-46px);
+  pointer-events: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll) transparent;
+  padding-right: 8px;
+  mask-image: linear-gradient(180deg, transparent 0, #000 18px);
+}
+
+.album-overlay.tab-album .al-intro {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+/* ---------- 曲目列表 ---------- */
+
+.al-tracklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll) transparent;
+  padding-right: 6px;
+}
+
+.al-track {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 11px 14px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--al-fg-dim);
+  font-family: var(--font-ui);
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.al-track:hover {
+  background: var(--al-hover);
+  color: var(--al-fg);
+}
+
+.al-track.current {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.al-track-num {
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--al-fg-faint);
+}
+
+.al-track.current .al-track-num { color: var(--accent-strong); }
+
+.al-track-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.al-track-dur {
+  font-size: 12px;
+  color: var(--al-fg-faint);
+}
+
+.al-empty {
+  padding: 40px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--al-fg-faint);
+}
+
+/* ---------- 专辑 / 歌手介绍 ---------- */
+
+.al-intro-text {
+  font-size: 14.5px;
+  line-height: 1.9;
+  letter-spacing: 0.03em;
+  color: var(--al-fg-dim);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.al-intro-text.empty {
+  color: var(--al-fg-faint);
+  font-style: italic;
+}
+
+.al-intro-head {
+  margin: 34px 0 12px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  color: var(--al-fg);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
+}
+
+.al-artist-intro .al-intro-head:first-child { margin-top: 0; }
+
+/* ---------- 底部胶囊 ---------- */
+
+.al-capsule {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 44px var(--shadow-deep);
+  backdrop-filter: blur(14px);
+  animation: alcapup 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.12s backwards;
+}
+
+@keyframes alcapup {
+  from { transform: translate(-50%, 34px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+.al-cap-btn {
+  min-width: 84px;
+  padding: 9px 22px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--al-fg-dim);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.al-cap-btn:hover { color: var(--al-fg); }
+
+.al-cap-btn.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* 矮窗口：专辑图与文字区间收窄，避免溢出 */
+@media (max-height: 620px) {
+  .al-stage { --art-w: clamp(180px, 22vw, 250px); }
+  .al-panel { top: clamp(120px, 20vh, 180px); }
+  .al-title { top: 52px; }
+}

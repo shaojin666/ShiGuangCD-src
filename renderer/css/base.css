@@ -1,0 +1,461 @@
+/* ============================================================
+   拾光 · CD —— 基础样式与全局规则
+   ------------------------------------------------------------
+   主题：所有颜色都走 CSS 变量。深色为默认值（html 未带 data-theme 时），
+   浅色通过 <html data-theme="light"> 整体覆写一组变量实现，
+   因此新增界面元素只需要写语义变量，不需要写两套颜色。
+   ============================================================ */
+
+:root,
+html[data-theme="dark"] {
+  --bg: #0c0c0e;
+  --surface: #141418;
+  --surface-2: #1a1a1f;
+  --surface-3: #202027;
+  --tray: #0e0e11;
+  --line: #26262d;
+  --line-soft: #1e1e24;
+  --line-strong: #34343c;
+  --text: #e9e3d8;
+  --text-dim: #9b958a;
+  --text-faint: #635f57;
+  --accent: #c9a56a;
+  --accent-strong: #e0bc7c;
+  --accent-ink: #2a241a;
+  --accent-soft: rgba(201, 165, 106, 0.14);
+  --danger: #a65d54;
+  --danger-soft: rgba(166, 93, 84, 0.16);
+  --ok: #7f9a6f;
+  --shadow: rgba(0, 0, 0, 0.55);
+  --shadow-soft: rgba(0, 0, 0, 0.38);
+  --shadow-deep: rgba(0, 0, 0, 0.72);
+  --scrim: rgba(8, 8, 10, 0.66);
+  --bar-bg: rgba(12, 12, 14, 0.8);
+  --bar-line: rgba(255, 255, 255, 0.04);
+  --glass: rgba(20, 20, 24, 0.55);
+  --scroll: #2c2c33;
+  --scroll-hi: #383840;
+  --bg-tint: rgba(12, 12, 14, 0.56);
+  --bg-tint-2: rgba(12, 12, 14, 0.28);
+  --bg-vignette: rgba(0, 0, 0, 0.62);
+  --win-btn-hover: rgba(255, 255, 255, 0.07);
+  --close-hover: #b4453a;
+  --sheen: rgba(255, 255, 255, 0.05);
+  /* 文字区的压暗层（深色主题）：比主题底色略浅一点即可 */
+  --read-scrim: rgba(12, 12, 14, 0.5);
+}
+
+html[data-theme="light"] {
+  --bg: #f2efe7;
+  --surface: #fcfaf5;
+  --surface-2: #efeade;
+  --surface-3: #e5dfd0;
+  --tray: #e9e3d6;
+  --line: #d5cbb6;
+  --line-soft: #e6dfcd;
+  --line-strong: #bcb096;
+  /* 浅色主题的正文色要更实一点：背景是"专辑封面的模糊图"，
+     遇到深色专辑时过浅的灰字会直接糊掉。 */
+  --text: #23201c;
+  --text-dim: #554e43;
+  --text-faint: #7d7466;
+  --accent: #9a6f26;
+  --accent-strong: #7d5917;
+  --accent-ink: #fffaf0;
+  --accent-soft: rgba(154, 111, 38, 0.18);
+  --danger: #9c4a40;
+  --danger-soft: rgba(156, 74, 64, 0.14);
+  --ok: #55764a;
+  --shadow: rgba(74, 63, 44, 0.2);
+  --shadow-soft: rgba(74, 63, 44, 0.13);
+  --shadow-deep: rgba(60, 50, 34, 0.3);
+  --scrim: rgba(62, 56, 45, 0.42);
+  --bar-bg: rgba(250, 247, 240, 0.86);
+  --bar-line: rgba(74, 63, 44, 0.09);
+  --glass: rgba(255, 253, 248, 0.6);
+  --scroll: #cfc6b2;
+  --scroll-hi: #b6ab93;
+  --bg-tint: rgba(242, 239, 231, 0.46);
+  --bg-tint-2: rgba(242, 239, 231, 0.18);
+  --bg-vignette: rgba(88, 76, 56, 0.3);
+  --win-btn-hover: rgba(74, 63, 44, 0.1);
+  --close-hover: #b4453a;
+  --sheen: rgba(255, 255, 255, 0.55);
+  /* 文字区的压暗层：浅色主题下要盖得更实，深色专辑封面才压得住 */
+  --read-scrim: rgba(246, 243, 236, 0.86);
+}
+
+/* ---------- 界面动效量（由 visualizer.js 每帧写入） ---------- */
+:root {
+  --beat: 0;          /* 鼓点脉冲 0→1 后衰减 */
+  --beat-dir: 1;      /* 震动方向，正负交替 */
+  --level: 0;         /* 整体响度 0→1 */
+  --bass: 0;          /* 低频能量 0→1 */
+  /* 尺寸基准 + 用户缩放：设置里的「歌词 / 唱片大小」只改这两个 scale，
+     各处（普通 / 并行 / 全屏 / 矮窗口）只改 base，缩放自动跟随。 */
+  --disc-base: 340px;
+  --disc-scale: 1;
+  --lyric-base: 17px;
+  --lyric-active-base: 21px;
+  --lyric-manual-base: 19px;
+  --lyric-scale: 1;
+  --font-ui: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font-display: Georgia, "Songti SC", "SimSun", serif;
+  --ease-cam: cubic-bezier(0.33, 0.7, 0.18, 1);
+  --topbar-h: 54px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  cursor: default !important;      /* 全局禁止手指光标 */
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.45s ease, color 0.45s ease;
+}
+
+img, svg, canvas {
+  -webkit-user-drag: none !important;  /* 全局禁止图片拖拽 */
+  user-select: none;
+  pointer-events: none;
+}
+
+input, textarea, [contenteditable="true"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text !important;
+}
+
+button {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  padding: 0;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-hi); }
+
+.hidden { display: none !important; }
+
+/* 通用数字等宽 */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* ---------- 专辑取色背景（需求：背景随专辑图片模糊变化 / 随鼓点跳动） ---------- */
+
+#bg-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--bg);
+}
+
+.bg-art {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 126%;
+  height: 126%;
+  margin: -63% 0 0 -63%;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0;
+  visibility: hidden;
+  /* blur 是静态的：只有 transform/opacity 交给合成器。
+     刻意不在这一层做逐帧的 --beat 缩放 —— 被滤镜的层每帧改 transform
+     会触发重新栅格化，低配机与软件渲染下开销极大。
+     鼓点律动交给上面那层不过滤的 .bg-glow。 */
+  filter: blur(56px) saturate(165%) brightness(105%);
+  will-change: opacity;
+  transform: scale(1.1);
+  transition: opacity 1.6s ease, visibility 0s linear 1.6s;
+}
+
+.bg-art.on {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 1.6s ease;
+}
+
+.bg-glow {
+  position: absolute;
+  inset: -10%;
+  background: radial-gradient(60% 55% at 50% 42%, var(--accent-soft), transparent 70%);
+  opacity: calc(0.35 + var(--level) * 0.5);
+  transform: scale(calc(1 + var(--bass) * 0.06 + var(--beat) * 0.04));
+  will-change: transform, opacity;
+}
+
+/* 主题底色：把封面色压下去，保证前景文字始终可读 */
+.bg-tint {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% 0%, var(--bg-tint-2), var(--bg-tint) 70%, var(--bg) 100%);
+}
+
+.bg-vignette {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 240px 60px var(--bg-vignette);
+}
+
+/* ---------- 顶栏（无边框窗口的拖拽区） ---------- */
+
+#topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--topbar-h);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  padding: 0 0 0 20px;
+  background: var(--bar-bg);
+  border-bottom: 1px solid var(--bar-line);
+  -webkit-app-region: drag;          /* 空白处拖动窗口 */
+  transition: background-color 0.45s ease;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text);
+  -webkit-app-region: no-drag;
+}
+
+/*
+ * ★ 图标要单独往下挪 5px，不能靠改 .brand 的 align-items。
+ *
+ * .brand 是 `align-items: baseline`，而**行内 SVG 的基线就是它的下边缘**
+ * —— 于是图标"底边"压在文字基线上，圆心跑到文字的视觉中心**上方 5px**
+ * （实测：图标中心 22.65，文字 em 盒中心 27.65）。
+ * 改成 `align-items: center` 能顺手解决，但会连 .brand-tag 一起上移 3.35px，
+ * 而需求只动图标，所以这里用 transform 只挪图标自己。
+ *
+ * transform 不参与布局，文字与徽标的位置一个像素都不会变。
+ *
+ * 5px 的来历：图标高 22px，圆心在底边上方 11px；文字基线到视觉中心是 6px
+ * （ascent 16 − descent 4 = 12，取一半）。11 − 6 = 5。
+ * 改动图标尺寸或 brand-name 字号时，用上面这套算式重新取值。
+ */
+.brand-mark {
+  color: var(--accent);
+  transform: translateY(5px);
+}
+.brand-name { font-family: var(--font-display); font-size: 17px; letter-spacing: 0.12em; }
+.brand-tag {
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 5px 1px 7px;
+}
+
+#nav {
+  display: flex;
+  gap: 4px;
+  margin-left: 34px;
+  -webkit-app-region: no-drag;
+}
+
+.nav-btn {
+  padding: 6px 14px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  border-radius: 4px;
+  transition: color 0.25s ease, background-color 0.25s ease;
+}
+
+.nav-btn:hover { color: var(--text); background-color: var(--win-btn-hover); }
+.nav-btn.active { color: var(--accent-strong); background-color: var(--accent-soft); }
+
+.top-right {
+  margin-left: auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.chip {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 3px 12px;
+  margin-right: 6px;
+}
+
+.chip.on { color: var(--ok); border-color: rgba(127, 154, 111, 0.45); }
+.chip.busy { color: var(--accent-strong); border-color: rgba(201, 165, 106, 0.5); }
+.chip.dim { color: var(--text-faint); }
+
+/* ---------- 工具键组（全屏 / 深浅色 / 设置）---------- */
+
+/* 主题快切：深色时显示月亮（点了变浅色），浅色时显示太阳 */
+#btn-theme .t-icon { display: none; }
+#btn-theme .t-dark { display: block; }
+html[data-theme="light"] #btn-theme .t-dark { display: none; }
+html[data-theme="light"] #btn-theme .t-light { display: block; }
+
+.tool-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+}
+
+.tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.tool-btn:hover { color: var(--text); background-color: var(--win-btn-hover); }
+.tool-btn:active { background-color: var(--line); }
+
+.tool-btn.on { color: var(--accent-strong); background-color: var(--accent-soft); }
+
+.tool-btn .wi,
+.tool-btn .t-icon { display: block; }
+
+/* ---------- 自绘窗口控件 ---------- */
+
+.win-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--line);
+}
+
+/* 关闭键贴住窗口右上角（不再用负 margin 外挂，避免图标被切掉一角） */
+.win-controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  margin-left: 6px;
+}
+
+.win-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  color: var(--text-dim);
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.win-btn:hover { background-color: var(--win-btn-hover); color: var(--text); }
+.win-btn:active { background-color: var(--line); }
+.win-btn.close:hover { background-color: var(--close-hover); color: #fff6f4; }
+
+.win-btn .wi { display: block; }
+.win-btn .w-restore { display: none; }
+.win-btn.on .w-max { display: none; }
+.win-btn.on .w-restore { display: block; }
+.tool-btn .w-exit { display: none; }
+.tool-btn.on .w-enter { display: none; }
+.tool-btn.on .w-exit { display: block; }
+
+/* ---------- 沉浸模式：顶栏与传输条整体淡出（不改变其它组件位置）---------- */
+
+html.immersive #topbar {
+  background: transparent;
+  border-bottom-color: transparent;
+}
+
+html.immersive-away #topbar {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+html.immersive-away .np-transport {
+  transform: translateY(calc(100% + 24px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 界面外壳退场后，背景稍微压暗一点，视觉上只剩唱片与歌词 */
+html.immersive-away .bg-tint { opacity: 1; }
+
+/*
+ * 沉浸模式退场后一并隐藏鼠标指针。
+ *
+ * ★ 用 `html.cursor-away *` + !important，而不是只写 `html.cursor-away`：
+ *   cursor 虽然是继承属性，但项目里有两处带 !important 的声明会顶掉继承值 ——
+ *   `* { cursor: default !important }`（全局禁箭头）
+ *   `input, textarea, [contenteditable] { cursor: text !important }`
+ *   只写在 html 上的话，指针移到输入框 / 按钮上又会冒出来。
+ *   本条 (0,1,1) + !important 能压过上面两条（(0,0,0) 和 (0,0,1)）。
+ *
+ * 什么时候摘掉由 JS 负责：Immersive 的 onMove 里，只要指针一动就先摘 cursor-away
+ * （外壳不一定回来），所以不会出现"鼠标在动但没有指针"。
+ */
+html.cursor-away,
+html.cursor-away * { cursor: none !important; }
+
+#topbar,
+.np-transport {
+  transition: opacity 0.4s var(--ease-cam), transform 0.45s var(--ease-cam),
+    background-color 0.45s ease, border-color 0.45s ease;
+}
+
+/* ---------- 页面容器 ---------- */
+
+#pages {
+  position: fixed;
+  inset: var(--topbar-h) 0 0 0;
+  z-index: 10;
+}
+
+.page {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.55s var(--ease-cam), visibility 0.55s;
+  overflow-y: auto;
+  padding: 34px 44px 60px 44px;
+}
+
+.page.visible {
+  opacity: 1;
+  visibility: visible;
+}

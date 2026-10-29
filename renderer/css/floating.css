@@ -1,0 +1,619 @@
+/* ============================================================
+   floating.css —— 桌面悬浮歌词
+   ------------------------------------------------------------
+   核心约定：**窗口 = 黑色底板**。
+   渲染端不再改窗口尺寸，尺寸完全由用户拖边缘决定，
+   所以这里不需要任何"量内容 → 反推窗口大小"的技巧，
+   也不存在"窗口比底板大一圈、空白处吃掉点击"的问题。
+
+   可调变量必须声明在 :root（不是 html, body）：
+   body 上的声明会盖住 <html> 的行内值，JS 写进去的变量就永远不生效。
+   ============================================================ */
+
+:root {
+  --fg: #e9e3d8;
+  --fs: 22px;
+  /* 未唱词的暗态（逐字填充的起点）：JS 换颜色时同步覆盖 */
+  --fg-dim: rgba(233, 227, 216, 0.42);
+  --glow-dim: rgba(233, 227, 216, 0.16);
+  /*
+   * 辉光必须是**两个独立变量**，不能把两个颜色塞进一个再用逗号分隔。
+   * text-shadow 本身是逗号分隔的多层列表，`0 0 4px var(--glow)` 展开后
+   * 第二层只剩一个颜色、没有任何偏移量 → 整条声明作废（computed 变成 none），
+   * 表现就是"辉光莫名其妙没了"。所以近的一圈、远的一圈各占一个变量。
+   */
+  --glow-in: rgba(233, 227, 216, 0.55);
+  --glow-out: rgba(233, 227, 216, 0.28);
+  --plate-bg: rgba(14, 14, 18, 0.82);
+  --chip-bg: rgba(14, 14, 18, 0.9);
+  --chip-line: rgba(255, 255, 255, 0.1);
+  --ease: cubic-bezier(0.33, 0.7, 0.18, 1);
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;          /* 窗口本体全透明 */
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  color: var(--fg);
+}
+
+/* 出现时淡入，而不是从上方"滑"下来 */
+body {
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+body.ready { opacity: 1; }
+
+#stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ---------- 歌词底板：铺满整个窗口 ---------- */
+
+#plate {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  /* 给顶部拖动条、底部控件条、四角把手留出空间，歌词不会被压到 */
+  padding-top: 26px;
+  padding-bottom: 34px;
+  border-radius: 10px;
+  background: var(--plate-bg);
+  transition: background-color 0.3s ease;
+}
+
+/* 鼠标移开或已锁定 → 底板透明，只剩发光的文字 */
+body.locked #plate,
+body.away #plate {
+  background: transparent;
+}
+
+/* ---------- 顶部拖动条（与主窗口顶栏同一原理） ---------- */
+
+/*
+ * ★ 窗口快速移动交给 -webkit-app-region: drag，和主窗口顶栏完全一样。
+ *   由 Chromium/系统直接处理，**不经过任何 JS 与 IPC**。
+ *   早年用"mousemove + setPosition"自己实现整窗拖动，除了多出每秒几千次
+ *   同步 IPC，还会因为坐标换算 / 手势卡住等问题出现"拖着拖着窗口自己变形"。
+ *
+ * ★ v10.7 起移动窗口只认这一条（v10.6 的"底板长按拖动"因实测会拉伸
+ *   窗口已移除）。app-region: drag 区域的鼠标事件不会送给页面，所以它
+ *   必须保持为**单独一条窄带** —— 整个底板都是 drag 的话，悬停显控件、
+ *   中键锁定就全收不到事件了。
+ */
+#dragbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  -webkit-app-region: drag;
+  cursor: move;
+}
+
+/* 悬停时给一条淡淡的手柄提示，让用户知道这里能拖 */
+#dragbar::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  width: 34px;
+  height: 3px;
+  margin-left: -17px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+#stage:hover #dragbar::after { opacity: 0.22; }
+
+/* ---------- 四角把手：缩放窗口 ---------- */
+
+/*
+ * ★ 只保留四个角，不做整条边。
+ *   之前整条右边缘/下边缘都是常驻拉杆，而底板又铺满整个窗口，
+ *   用户想挪窗口时一抓就落在边条上 → 表现为"左右拖变宽、上下拖变高"。
+ *   角落是明确的视觉符号，误判概率极低。
+ *   四个角都必须 no-drag，否则会与拖动条语义冲突。
+ */
+.grip {
+  position: absolute;
+  z-index: 5;
+  width: 16px;
+  height: 16px;
+  -webkit-app-region: no-drag;
+  background: transparent;
+  transition: background-color 0.18s ease;
+}
+
+.grip-nw { top: 0; left: 0; cursor: nwse-resize; }
+.grip-ne { top: 0; right: 0; cursor: nesw-resize; }
+.grip-sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.grip-se { bottom: 0; right: 0; cursor: nwse-resize; }
+
+/* 悬停时显示一个小三角，明确提示"这里可以拉" */
+.grip::after {
+  content: "";
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.grip-nw::after { top: 3px; left: 3px; border-width: 7px 7px 0 0; border-color: rgba(201,165,106,.9) transparent transparent transparent; }
+.grip-ne::after { top: 3px; right: 3px; border-width: 7px 0 0 7px; border-color: rgba(201,165,106,.9) transparent transparent transparent; }
+.grip-sw::after { bottom: 3px; left: 3px; border-width: 0 7px 7px 0; border-color: transparent rgba(201,165,106,.9) transparent transparent; }
+.grip-se::after { bottom: 3px; right: 3px; border-width: 0 0 7px 7px; border-color: transparent transparent rgba(201,165,106,.9) transparent; }
+
+#stage:hover .grip::after { opacity: 1; }
+
+body.locked .grip { pointer-events: none; opacity: 0; }
+
+/*
+ * 自然浮动（上下漂浮）。
+ *
+ * ★ 为什么不是常驻动画：窗口是 transparent + alwaysOnTop，合成器必须把
+ *   窗口**背后那一片桌面**每帧重新混合一次，窗口越大每帧代价越高 ——
+ *   实测"窗口越大空闲占用越高"就是常驻无限动画造成的。
+ *
+ * ★ 所以由 JS 控制：每次换行后跑 5 秒（用户正在看那一句），
+ *   然后自动停。需要常驻时在设置里打开「歌词缓慢浮动」。
+ *
+ * 幅度也调过：±4px、9s 一个来回，很慢，是"漂浮"而不是"晃动"。
+ */
+#floaty {
+  position: relative;
+  max-width: 100%;
+}
+
+body.float-on #floaty {
+  will-change: transform;
+  animation: floaty 9s ease-in-out infinite;
+}
+
+@keyframes floaty {
+  0%, 100% { transform: translate3d(0, -4px, 0); }
+  50% { transform: translate3d(0, 4px, 0); }
+}
+
+/* ---------- 三行歌词：普通流布局，垂直居中 ---------- */
+
+#track {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  text-align: center;
+}
+
+.line {
+  margin: 0;
+  max-width: 100%;
+  font-size: var(--fs);
+  line-height: 1.34;
+  letter-spacing: 0.04em;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  /*
+   * 辉光：近的一圈小而实、远的一圈大而散。
+   * 两层分开写（而不是一个模糊半径）是因为单层大模糊在大字号下
+   * 会糊成一团、边界发虚；两层叠起来才有"发亮但字还清楚"的感觉。
+   * text-shadow 不触发重排，也不会因为下面那个 transform 动画而重绘。
+   */
+  text-shadow:
+    0 0 calc(var(--fs) * 0.14) var(--glow-in),
+    0 0 calc(var(--fs) * 0.5) var(--glow-out),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.line.ghost {
+  font-size: calc(var(--fs) * 0.56);
+  opacity: 0.42;
+  /* 幽灵行只留一点点光，避免整块底板都在发光 */
+  text-shadow: 0 0 calc(var(--fs) * 0.2) var(--glow-in), 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.line:empty { display: none; }
+
+/* ---------- 逐字（卡拉OK）填充 ---------- */
+
+/*
+ * 一个词一个 span。基态 = 暗（未唱），动画/直接类把颜色与辉光推到亮（已唱）。
+ * ★ 为什么不用主界面那套 linear-gradient + background-clip:text：
+ *   悬浮窗是透明置顶窗口，合成器每帧要把窗口背后的桌面重混一次，
+ *   渐变裁剪会多一层离屏渲染；而动画 color/text-shadow 只重绘文字本身，
+ *   一行十几个词的量级完全可以忽略。视觉效果一致：暗 → 亮扫过。
+ * ★ animation-delay / duration 由 JS 按词的绝对时间写好（见 buildCurrentLine），
+ *   补间交给合成器，行内seek 不补推 —— 近似但零 IPC 开销。
+ */
+.line .w {
+  color: var(--fg-dim);
+  text-shadow: 0 0 calc(var(--fs) * 0.08) var(--glow-dim), 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* 推送时已经唱过的词：直接落终态，不跑动画 */
+.line .w.sung {
+  color: var(--fg);
+  text-shadow:
+    0 0 calc(var(--fs) * 0.14) var(--glow-in),
+    0 0 calc(var(--fs) * 0.5) var(--glow-out),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.line .w:not(.sung) {
+  animation: w-fill linear both;
+  animation-duration: 600ms;   /* 兜底默认值，JS 总会按词长覆盖 */
+}
+
+@keyframes w-fill {
+  from {
+    color: var(--fg-dim);
+    text-shadow: 0 0 calc(var(--fs) * 0.08) var(--glow-dim), 0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+  to {
+    color: var(--fg);
+    text-shadow:
+      0 0 calc(var(--fs) * 0.14) var(--glow-in),
+      0 0 calc(var(--fs) * 0.5) var(--glow-out),
+      0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* 译文小字：只在当前行下方，块级独占一行 */
+.line .tr {
+  display: block;
+  margin-top: 0.2em;
+  font-size: calc(var(--fs) * 0.52);
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  opacity: 0.62;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* 罗马音小字（v10.6）：与译文同级的块级小字，再小一档 */
+.line .ro {
+  display: block;
+  margin-top: 0.16em;
+  font-size: calc(var(--fs) * 0.46);
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  opacity: 0.56;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* 译/音显隐开关（v10.6）：设置页 → 主进程 → body.no-tr / body.no-ro。
+   只切 display，不重建歌词节点，反复切换零布局成本。 */
+body.no-tr .line .tr,
+body.no-ro .line .ro { display: none; }
+
+/* ---------- 对唱（背景人声）：主唱靠右、对唱靠左（v10.7，amll 风格） ---------- */
+
+/*
+ * 与主界面歌词页同样的排版语义（v10.7 起统一）：
+ *   - 歌曲含对唱（行带 duet-line / bg 块带 bg-duet / bg-main 类，
+ *     由 JS 按 agent 与主唱 agent 的比较打上）时：
+ *       非对唱行（主唱，含译/音小字）靠右、对唱行靠左、无任何居中；
+ *       bg 块跟随所属行 —— 对唱侧（bg-duet）靠左，主唱侧（bg-main）靠右。
+ *   - 不含对唱：类不存在，整行维持默认居中。
+ * 用 text-align 而不是 flex：当前行里还混着逐字填充的 .w span，
+ * 改 flex 会把行内布局整个打乱。
+ */
+.line.duet-line { text-align: left; }
+
+.line.duet-line .bg { text-align: left; }
+
+.line .bg.bg-duet { text-align: left; }
+
+.line .bg {
+  display: block;
+  margin-top: 0.24em;
+  font-size: calc(var(--fs) * 0.72);
+  line-height: 1.4;
+  letter-spacing: 0.03em;
+  color: var(--fg-dim);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* 对唱块内的词（.bw，v10.7）：与主线同构跑补间，终点亮度暗一档
+   （w-fill 到 --fg，bw-fill 到 --fg-dim）。已唱过的词直接落终态。 */
+.line .bg .bw {
+  color: var(--fg-dim);
+  text-shadow: 0 0 calc(var(--fs) * 0.06) var(--glow-dim), 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.line .bg .bw.sung {
+  color: var(--fg);
+  text-shadow:
+    0 0 calc(var(--fs) * 0.1) var(--glow-in),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.line .bg .bw:not(.sung) {
+  animation: bw-fill linear both;
+  animation-duration: 600ms;   /* 兜底默认值，JS 总会按词长覆盖 */
+}
+
+@keyframes bw-fill {
+  from {
+    color: var(--fg-dim);
+    text-shadow: 0 0 calc(var(--fs) * 0.06) var(--glow-dim), 0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+  to {
+    color: var(--fg);
+    text-shadow:
+      0 0 calc(var(--fs) * 0.1) var(--glow-in),
+      0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* 顺序推进到下一句时，当前行轻微上移入场。
+   注意：这里只动"怎么显示"，文本本身已由 JS 按角色写死，
+   动画永远不会影响三行与歌词的对应关系。 */
+#track.adv .line[data-slot="1"] {
+  animation: line-in 0.5s var(--ease) both;
+}
+
+@keyframes line-in {
+  0% { transform: translate3d(0, 0.5em, 0); opacity: 0; }
+  100% { transform: translate3d(0, 0, 0); opacity: 1; }
+}
+
+.idle {
+  font-size: var(--fs);
+  opacity: 0.32;
+  text-align: center;
+  pointer-events: none;
+}
+
+#plate.has-text .idle { display: none; }
+
+/* ---------- 设置条 / 锁定提示：叠在窗口底部 ---------- */
+
+#controls,
+#lockhint {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%) translateY(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+  white-space: nowrap;
+  z-index: 4;
+}
+
+#controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-line);
+}
+
+body.unlocked #controls.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+#lockhint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  border: 1px solid rgba(201, 165, 106, 0.5);
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+body.locked #lockhint.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* 小锁形图标：锁定时闭锁，未锁定时挂开 */
+.lock-icon {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.lock-icon::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  bottom: 1px;
+  width: 8px;
+  height: 6px;
+  border: 1.6px solid var(--fg);
+  border-radius: 2px;
+}
+
+.lock-icon::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 6px;
+  height: 7px;
+  border: 1.6px solid var(--fg);
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+}
+
+body.unlocked .lock-icon::after {
+  left: 6px;
+  transform: rotate(26deg);
+  transform-origin: left bottom;
+}
+
+/* ---------- 缩放把手：只有右下角一个 ---------- */
+
+/*
+ * ★ 为什么边缘不放把手：
+ *   底板铺满整个窗口、没有标题栏，用户要挪窗口只能抓黑色区域。
+ *   若右边缘 / 下边缘也常驻一条拉杆，"抓边缘拖动"就会被判成缩放，
+ *   表现为"左右拖→变宽、上下拖→变高"，而用户以为自己在移动窗口。
+ *   边缘缩放交给系统窗口边框（BrowserWindow resizable: true），
+ *   这里的把手只是补充，且做成一眼可辨的角标。
+ */
+.grip {
+  position: absolute;
+  z-index: 6;
+  background: transparent;
+  transition: background-color 0.2s ease;
+}
+
+.grip-se {
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+}
+
+/* 悬停时在角上画一个小三角，明确提示"这里可以拉" */
+.grip-se::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 0 9px 9px;
+  border-color: transparent transparent rgba(201, 165, 106, 0.85) transparent;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+#stage:hover .grip-se::after { opacity: 1; }
+
+body.locked .grip { pointer-events: none; opacity: 0; }
+
+/* ---------- 控件内部 ---------- */
+
+.swatches {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sw {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+/* 预设色用属性选择器上色：CSP 不允许 style 属性 */
+.sw[data-color="#e9e3d8"] { background: #e9e3d8; }
+.sw[data-color="#c9a56a"] { background: #c9a56a; }
+.sw[data-color="#f4f2ea"] { background: #f4f2ea; }
+.sw[data-color="#7f9a6f"] { background: #7f9a6f; }
+.sw[data-color="#7aa2c9"] { background: #7aa2c9; }
+
+.sw:hover { transform: scale(1.2); }
+
+.sw.on {
+  box-shadow: 0 0 0 2px rgba(201, 165, 106, 0.9);
+  transform: scale(1.12);
+}
+
+input[type="color"] {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }
+
+#fsize {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 76px;
+  height: 16px;
+  background: transparent;
+}
+
+#fsize::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+#fsize::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #c9a56a;
+  box-shadow: 0 0 0 2px rgba(201, 165, 106, 0.2);
+}
+
+.ctl-label,
+.ctl-value {
+  font-size: 11px;
+  color: var(--fg);
+  opacity: 0.62;
+  letter-spacing: 0.06em;
+}
+
+.ctl-value { min-width: 16px; text-align: right; }
+
+.sep {
+  width: 1px;
+  height: 13px;
+  background: currentColor;
+  opacity: 0.16;
+}
+
+.x {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg);
+  opacity: 0.7;
+  transition: background-color 0.18s ease, opacity 0.18s ease;
+}
+
+.x:hover { background: rgba(200, 82, 70, 0.85); opacity: 1; }

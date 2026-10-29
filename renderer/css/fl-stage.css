@@ -1,0 +1,1203 @@
+/* ============================================================
+   fl-stage.css —— 全屏歌词演出层（代号 Stage）
+   ------------------------------------------------------------
+   与原版的关系：本文件只服务 #fl-stage（z:60 覆盖全窗的演出层），
+   不改动任何原版选择器。html.fl-active 时把原版 #pages / #bg-stage
+   置为 display:none —— 旧歌词界面（滚动 / 旋转 / 过渡）被合成器
+   整体停摆，这是"节约性能"的真正落点。
+
+   分层（自底向上）：
+     .fl-bg       主题背景层（封面大模糊 + 取色光斑，主题可追加）
+     .fl-fx       主题特效层（canvas / 装饰，主题可写入）
+     .fl-lyrics   歌词 DOM 层（FlLyrics 构建，行绝对定位）
+     .fl-veil     切主题交叉淡入 veil
+     .fl-chrome   顶栏 / 底部铬件（自动隐藏 + 指针隐身）
+     .fl-panel    主题选项面板 / .fl-menu 播控菜单
+
+   性能纪律：
+     - 每帧只改 CSS 变量与 transform / opacity（见文件末「帧内写入白名单」）；
+     - 布局读数全部由 JS 缓存，本文件不依赖任何触发布局的属性做动画；
+     - blur 只出现在静态层（.fl-bg-cover），不进逐帧路径。
+   ============================================================ */
+
+/* ---------- 舞台外壳 ---------- */
+
+#fl-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+  background: var(--fl-bg, #0c0c0e);
+  color: var(--fl-ink, #f2efe6);
+  font-family: var(--fl-font, "MiSans", "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei UI", "Segoe UI Variable Display", system-ui, sans-serif);
+  /* 尺寸基准：JS 按设置写入 --fl-size（歌词字号 px）与 --fl-gap（行距 px） */
+  --fl-size: 34px;
+  --fl-gap: 72px;
+  --fl-ease: cubic-bezier(0.22, 0.9, 0.24, 1);
+  /* 文字色：暖白。封面取色只驱动 --fl-c1..c3 / --fl-accent，不动 ink
+     （保证任何封面对比度下歌词可读）。--fl-ink 必须在此定义——
+     词填充渐变里 var(--fl-ink) 无回退，未定义会让整条 background-image
+     回退成 none，叠加 color:transparent 后「唱到一半的词」直接消失。 */
+  --fl-ink: #f2efe6;
+  --fl-w-dim: rgba(242, 239, 230, 0.34);
+  opacity: 0;
+  transition: opacity 0.32s var(--fl-ease);
+}
+/* 开关：JS 切 .fl-on（显示→淡入；关闭→淡出，340ms 后才真正 display:none） */
+#fl-stage.fl-on { opacity: 1; }
+
+#fl-stage.hidden { display: none !important; }
+
+/* 旧界面真停渲：演出层打开期间，原版三块整体撤出布局。
+   nowplaying.tick/highlight 另有显式守卫（双保险）。 */
+html.fl-active #pages,
+html.fl-active #bg-stage,
+html.fl-active #topbar,
+html.fl-active #ceremony { display: none !important; }
+
+.fl-layer { position: absolute; inset: 0; }
+
+/* ---------- 主题背景层 ---------- */
+
+#fl-bg { z-index: 1; overflow: hidden; }
+
+/* 封面大模糊：静态层（blur 不逐帧），换碟时 JS 只换 background-image */
+.fl-bg-cover {
+  position: absolute;
+  inset: -12%;
+  background-size: cover;
+  background-position: center;
+  filter: blur(90px) saturate(165%) brightness(88%);
+  opacity: 0;
+  transform: scale(1.08);
+  transition: opacity 1.2s ease;
+  will-change: opacity;
+}
+.fl-bg-cover.on { opacity: 0.62; }
+
+/* 取色光斑：transform-only 漂移，合成器执行 */
+.fl-blob {
+  position: absolute;
+  width: 46vmax;
+  height: 46vmax;
+  border-radius: 50%;
+  opacity: 0.5;
+  will-change: transform;
+  pointer-events: none;
+}
+.fl-blob.b1 { left: -8vmax; top: -10vmax; background: radial-gradient(circle at center, var(--fl-c1, #c9a56a), transparent 68%); animation: fl-drift-a 21s ease-in-out infinite alternate; }
+.fl-blob.b2 { right: -12vmax; bottom: -14vmax; background: radial-gradient(circle at center, var(--fl-c2, #7a8fb5), transparent 68%); animation: fl-drift-b 27s ease-in-out infinite alternate; }
+.fl-blob.b3 { left: 32vw; bottom: -18vmax; background: radial-gradient(circle at center, var(--fl-c3, #a65d54), transparent 70%); opacity: 0.34; animation: fl-drift-c 33s ease-in-out infinite alternate; }
+
+@keyframes fl-drift-a { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(7vmax, 4vmax, 0) scale(1.12); } }
+@keyframes fl-drift-b { from { transform: translate3d(0, 0, 0) scale(1.08); } to { transform: translate3d(-6vmax, -5vmax, 0) scale(1); } }
+@keyframes fl-drift-c { from { transform: translate3d(0, 0, 0) scale(0.95); } to { transform: translate3d(4vmax, -6vmax, 0) scale(1.1); } }
+
+/* 压暗 + 暗角：保证任何封面下文字可读（亮度由 JS 按取色结果微调 --fl-scrim） */
+.fl-bg-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% 40%, transparent 30%, rgba(6, 6, 9, var(--fl-scrim, 0.55)) 100%),
+    linear-gradient(180deg, rgba(6, 6, 9, calc(var(--fl-scrim, 0.55) * 0.7)) 0%, transparent 22%, transparent 74%, rgba(6, 6, 9, calc(var(--fl-scrim, 0.55) * 0.9)) 100%);
+}
+
+/* ---------- 特效层（canvas 主题） ---------- */
+
+#fl-fx { z-index: 2; }
+#fl-fx canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* ---------- 歌词 DOM 层 ---------- */
+
+/*
+ * 行定位架构（folia 式）：
+ *   全部行一次构建、绝对定位叠在容器中心；每帧 JS 只写 --d（相对当前行的
+ *   有符号距离）与 --ad（绝对距离），行通过 translateY 滑行。
+ *   窗口（±8 行）之外 --ad 封顶、opacity 归零 —— 不可见的行不参与绘制。
+ */
+#fl-lyrics {
+  z-index: 3;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;   /* 演出层不做行点击跳转（防误触），定位走小胶囊 */
+}
+
+.fl-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  text-align: center;
+  padding: 0 9vw;
+  line-height: 1.42;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fl-ink);
+  opacity: calc(1 - var(--ad, 0) * 0.16);
+  transform: translateY(calc(var(--d, 0) * var(--fl-gap) - 50%));
+  transition: opacity 0.28s ease;
+  will-change: transform, opacity;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 窗口外的行：完全透明且不吃指针（仍留在 DOM 里，切行时滑行入场）。
+   !important：主题规则（#fl-stage[data-theme=...] .fl-line，特异度 1,2,0）
+   会带自己的 opacity calc，普通特异度压不住——窗口剔除是定位链路的硬状态，
+   必须压过任何主题的同类声明。 */
+#fl-stage .fl-line.fl-out { opacity: 0 !important; }
+
+/* ---------- 揭示层 .fl-in（v10.9） ---------- */
+
+/*
+ * 分层的理由（与 fl-lyrics.js 文件头一致）：
+ *   .fl-line = 定位链（--d/--ad → transform/opacity，归基础规则与各主题）
+ *   .fl-in  = 揭示链（弹出动画 / 3D 变换，只归这里的 reveal 规则与 3D 主题）
+ * orbit/chorus/prism 直接占用 .fl-line 的 translate/rotate/scale 独立属性，
+ * whisper 占用 .fl-w 的 translate —— 揭示动画写在 .fl-in 上与它们零冲突
+ * （不同元素；且 opacity 相乘，父级照常按 --ad 衰减）。
+ */
+.fl-in { display: block; }
+
+/* line / word 模式：未揭示的行整体不可见（未来行藏在下、过去行淡在上） */
+#fl-stage[data-reveal="line"] .fl-line:not(.rv-on) .fl-in,
+#fl-stage[data-reveal="word"] .fl-line:not(.rv-on) .fl-in { opacity: 0; }
+
+/* 未来行（非 rv-on 且非 rv-past）：从下方 26px 缩小淡入 + 虚焦「聚焦」 */
+#fl-stage[data-reveal="line"] .fl-line:not(.rv-on):not(.rv-past) .fl-in,
+#fl-stage[data-reveal="word"] .fl-line:not(.rv-on):not(.rv-past) .fl-in {
+  translate: 0 26px;
+  scale: 0.9;
+  filter: blur(8px);
+}
+/* 过去行：向上 22px 淡出（与入场方向相反，画面有"翻过去"的流向感）。
+   同特异度竞争中后写赢过上面的未来行规则。 */
+#fl-stage[data-reveal="line"] .fl-line.rv-past .fl-in,
+#fl-stage[data-reveal="word"] .fl-line.rv-past .fl-in {
+  opacity: 0;
+  translate: 0 -22px;
+  scale: 0.95;
+  filter: blur(6px);
+}
+
+/* 弹出过渡：只走独立变换属性 + opacity/filter（合成器执行，不碰布局） */
+#fl-stage[data-reveal="line"] .fl-in,
+#fl-stage[data-reveal="word"] .fl-in {
+  transition: opacity 0.42s var(--fl-ease), translate 0.42s var(--fl-ease),
+              scale 0.42s var(--fl-ease), filter 0.42s var(--fl-ease);
+}
+
+/* 逐字弹出（word 模式专属）：行落入后，字到各自时间才浮现。
+   未唱的字虚焦淡出；fl-solid（行级 LRC / 间奏 / 无效词级回退）没有逐词
+   时间轴，随整行直接显示。whisper 在 .fl-w 上的 translate 动画不受影响
+   （这里只写 opacity/filter）。 */
+#fl-stage[data-reveal="word"] .fl-line.rv-on .fl-w {
+  opacity: 0;
+  filter: blur(5px);
+  transition: opacity 0.34s ease, filter 0.34s ease;
+}
+#fl-stage[data-reveal="word"] .fl-line.rv-on .fl-w.w-on { opacity: 1; filter: none; }
+#fl-stage[data-reveal="word"] .fl-line.rv-on .fl-w.fl-solid { opacity: 1; filter: none; }
+
+.fl-w { position: relative; white-space: pre-wrap; }
+
+/* 词级卡拉 OK 填充：--wp（0~1）每帧由 JS 写入当前行（技法与原版
+   lyrics-view 同源：渐变 + background-clip:text，不重建文本节点）。
+   门控 word-mode：只有词级模型才填充——行级模型（LRC）整行同亮，
+   否则未唱的 LRC 行会被渐变压暗。fl-solid 标记不可填充的 span
+   （间奏 / 无效词级回退 / 行级模型的整行 span）。 */
+#fl-stage.word-mode .fl-line.active .fl-w:not(.fl-solid) {
+  background-image: linear-gradient(96deg,
+    var(--fl-ink) 0%, var(--fl-ink) calc(var(--wp, 0) * 100%),
+    var(--fl-w-dim, rgba(242, 239, 230, 0.34)) calc(var(--wp, 0) * 100%), var(--fl-w-dim, rgba(242, 239, 230, 0.34)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+#fl-stage.word-mode .fl-line.active .fl-w.fl-solid {
+  background-image: none;
+  color: inherit;
+}
+#fl-stage.word-mode .fl-bg .fl-w:not(.fl-solid) {
+  background-image: linear-gradient(96deg,
+    var(--fl-ink) 0%, var(--fl-ink) calc(var(--wp, 0) * 100%),
+    var(--fl-w-dim, rgba(242, 239, 230, 0.34)) calc(var(--wp, 0) * 100%), var(--fl-w-dim, rgba(242, 239, 230, 0.34)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* 翻译 / 罗马音：附在主行下方的小字 */
+.fl-tr, .fl-ro { display: block; font-weight: 500; }
+.fl-tr { margin-top: 0.28em; font-size: 0.5em; opacity: 0.72; letter-spacing: 0.04em; }
+.fl-ro { margin-top: 0.2em; font-size: 0.44em; opacity: 0.6; font-style: italic; }
+#fl-stage.no-tr .fl-tr { display: none; }
+#fl-stage.no-ro .fl-ro { display: none; }
+
+/* 对唱 / 背景人声：跟在主行下方，小一档 */
+.fl-bg { display: block; margin-top: 0.3em; font-size: 0.68em; font-weight: 500; opacity: 0.66; }
+.fl-bg .fl-w { /* bg 行不在 active 填充链路里也允许词填充（JS 同写 --wp） */ }
+
+/* 间奏行 */
+.fl-line.fl-inst .fl-w { font-style: normal; letter-spacing: 0.3em; opacity: 0.8; animation: fl-inst-breathe 2.8s ease-in-out infinite; }
+@keyframes fl-inst-breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.9; } }
+
+/* 空态 */
+.fl-empty {
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  font-size: calc(var(--fl-size) * 0.5);
+  font-weight: 500;
+  opacity: 0.5;
+  letter-spacing: 0.2em;
+}
+
+/* ---------- 切主题 veil ---------- */
+
+.fl-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: var(--fl-bg, #0c0c0e);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+#fl-stage.fl-switching .fl-veil { opacity: 1; }
+
+/* ---------- 铬件（顶栏 / 底部）：自动隐藏 + 指针隐身 ---------- */
+
+.fl-chrome {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  transition: opacity 0.4s var(--fl-ease), transform 0.45s var(--fl-ease);
+  will-change: opacity, transform;
+}
+.fl-top {
+  top: 0;
+  height: 76px;
+  padding: 0 14px;
+  justify-content: space-between;
+  background: linear-gradient(180deg, rgba(8, 8, 11, 0.55), transparent);
+  -webkit-app-region: drag;               /* 无边框窗口：顶栏空白处拖窗（与主界面顶栏一致） */
+}
+.fl-top .fl-btn,
+.fl-top .fl-group { -webkit-app-region: no-drag; }
+.fl-bottom {
+  bottom: 0;
+  height: 132px;
+  padding: 0 22px 20px;
+  justify-content: space-between;
+  align-items: flex-end;
+  background: linear-gradient(0deg, rgba(8, 8, 11, 0.5), transparent);
+}
+
+/* 隐藏态：顶栏上移、底部下移（与"不破坏沉浸感"对应） */
+#fl-stage.fl-chrome-off .fl-top { opacity: 0; transform: translateY(-100%); pointer-events: none; }
+#fl-stage.fl-chrome-off .fl-bottom { opacity: 0; transform: translateY(calc(100% + 20px)); pointer-events: none; }
+
+/*
+ * 指针隐身：chrome 收起后再等 0.6s 隐藏指针（JS 分两段计时）。
+ * ★ 必须用 `html.fl-idle *` + !important —— 全局有
+ *   `* { cursor: default !important }`，只写 html 会被它顶掉。
+ */
+html.fl-idle,
+html.fl-idle * { cursor: none !important; }
+
+.fl-group { display: flex; align-items: center; gap: 4px; }
+
+/* 铬件按钮：44px 命中区（Windows 金刚键尺寸与原版顶栏一致） */
+.fl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  color: var(--fl-ink);
+  opacity: 0.72;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+.fl-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.09); }
+.fl-btn:active { background: rgba(255, 255, 255, 0.14); }
+.fl-btn.win { width: 44px; height: 38px; border-radius: 6px; }
+.fl-btn.win.close:hover { background: #b4453a; color: #fff6f4; }
+.fl-btn.on { opacity: 1; color: var(--fl-accent-strong, #e0bc7c); }
+.fl-sep { width: 1px; height: 20px; background: rgba(255, 255, 255, 0.16); margin: 0 6px; }
+
+/* 全屏键双态图标（复用原版顶栏的 w-enter / w-exit 语言） */
+.fl-btn .wi { display: block; }
+.fl-btn .w-exit { display: none; }
+.fl-btn.on .w-enter { display: none; }
+.fl-btn.on .w-exit { display: block; }
+
+/* ---------- 底部小胶囊 ---------- */
+
+.fl-capsule {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 62px;
+  padding: 0 20px 0 8px;
+  min-width: 300px;
+  max-width: min(46vw, 460px);
+  border-radius: 999px;
+  background: rgba(16, 16, 20, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(14px);            /* 渐进增强：不支持时实色兜底（上面的 rgba） */
+  -webkit-backdrop-filter: blur(14px);
+  touch-action: none;                      /* 长按横拖由 pointer 事件管，禁掉默认手势 */
+  transition: transform 0.3s var(--fl-ease), background-color 0.3s ease;
+}
+.fl-capsule:active { transform: scale(0.985); }
+/* 长按进入拖进度：提亮一档，给"正在拖动"的明确反馈 */
+.fl-capsule.seeking { background: rgba(24, 24, 30, 0.82); border-color: rgba(255, 255, 255, 0.2); }
+
+/* 旋转小封面 */
+.fl-cap-disc {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 0 0 5px rgba(12, 12, 14, 0.9);
+}
+.fl-cap-cover {
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.94;
+}
+.fl-cap-disc.spin { animation: fl-cap-spin 9s linear infinite; }
+@keyframes fl-cap-spin { to { transform: rotate(360deg); } }
+
+.fl-cap-info { flex: 1; min-width: 0; }
+.fl-cap-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fl-cap-artist {
+  margin-top: 2px;
+  font-size: 11.5px;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fl-cap-time { flex: none; font-size: 11.5px; opacity: 0.66; font-variant-numeric: tabular-nums; }
+
+/* 底部细进度条（贴在胶囊下缘） */
+.fl-cap-prog {
+  position: absolute;
+  left: 24px;
+  right: 20px;
+  bottom: 7px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+/* 进度用 scaleX 推进（合成器执行，不触发布局）；JS 每帧只写 transform */
+.fl-cap-prog-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 2px;
+  background: var(--fl-accent, #c9a56a);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+/* 拖动进度 / 音量气泡 */
+.fl-cap-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%) translateY(6px);
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(16, 16, 20, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.fl-cap-bubble.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* 右下播控菜单按钮 */
+.fl-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgba(16, 16, 20, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--fl-ink);
+  opacity: 0.8;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.fl-menu-btn:hover { opacity: 1; transform: scale(1.06); }
+
+/* ---------- 菜单内大号专辑封面（v10.9.1：封面在二级菜单内部） ---------- */
+
+/*
+ * 菜单最顶部一颗 176px 方封面（居中），下方跟歌名 / 艺术家，
+ * 再往下才是播放 / 切歌 / 音量 / 底部并排（播放顺序 + 弹出光盘）。
+ * 封面有图时淡入；无封面时整块藏起，露出占位光盘。
+ */
+.fl-menu-cover {
+  position: relative;
+  width: 176px;
+  height: 176px;
+  margin: 4px auto 2px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(16, 16, 20, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+/* 封面图：淡入避免换碟闪烁；无封面时整块藏起，露出下面的占位光盘 */
+.fl-cover-img {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.fl-menu-cover.has-cover .fl-cover-img { opacity: 1; }
+
+.fl-cover-fb {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.26);
+}
+.fl-menu-cover.has-cover .fl-cover-fb { display: none; }
+
+/* 封面下方：歌名 + 艺术家（居中，超长省略） */
+.fl-menu-meta {
+  padding: 8px 10px 10px;
+  text-align: center;
+}
+.fl-menu-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fl-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fl-menu-artist {
+  margin-top: 3px;
+  font-size: 12px;
+  opacity: 0.56;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 播控菜单（右下弹出） ---------- */
+
+.fl-menu {
+  position: absolute;
+  right: 22px;
+  bottom: 78px;                   /* 高于右下角播控菜单钮（钮顶沿 ≈66px） */
+  z-index: 7;
+  width: 272px;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(18, 18, 23, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transform-origin: bottom right;
+  animation: fl-menu-in 0.22s var(--fl-ease);
+}
+@keyframes fl-menu-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.fl-menu.hidden { display: none; }
+
+.fl-menu-row { display: flex; align-items: center; gap: 6px; }
+.fl-menu-row + .fl-menu-row { margin-top: 2px; }
+.fl-menu-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  color: var(--fl-ink);
+  opacity: 0.86;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+  white-space: nowrap;
+}
+.fl-menu-item:hover { background: rgba(255, 255, 255, 0.08); opacity: 1; }
+.fl-menu-item.icon { flex: none; width: 40px; justify-content: center; padding: 9px 0; }
+.fl-menu-item.wide { flex: 2; }
+.fl-menu-item.half { flex: 1; min-width: 0; justify-content: center; padding: 9px 6px; font-size: 12.5px; gap: 6px; }
+.fl-menu-item.half span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-menu-item.on { color: var(--fl-accent-strong, #e0bc7c); opacity: 1; }
+.fl-menu-item svg { flex: none; }
+.fl-menu-sep { height: 1px; margin: 6px 8px; background: rgba(255, 255, 255, 0.09); }
+
+/* 菜单内音量滑条 */
+.fl-menu-vol { display: flex; align-items: center; gap: 10px; padding: 7px 11px; }
+.fl-menu-vol input[type="range"] { flex: 1; }
+.fl-menu-vol .fl-vol-num { font-size: 11px; opacity: 0.6; width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 菜单内滑条（与全局 .slider 同语言，但独立作用域） */
+#fl-stage input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  outline: none;
+}
+#fl-stage input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--fl-accent, #c9a56a);
+  border: none;
+}
+#fl-stage input[type="range"]::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--fl-accent, #c9a56a);
+  border: none;
+}
+
+/* ---------- 主题选项面板（左上角 ⌂ 唤出） ---------- */
+
+.fl-panel {
+  position: absolute;
+  left: 16px;
+  top: 84px;
+  z-index: 8;
+  width: 344px;
+  max-height: calc(100% - 180px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  background: rgba(18, 18, 23, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  animation: fl-panel-in 0.24s var(--fl-ease);
+  overflow: hidden;
+}
+@keyframes fl-panel-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.fl-panel.hidden { display: none; }
+
+.fl-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.fl-panel-body { overflow-y: auto; padding: 4px 14px 14px; }
+.fl-panel-body::-webkit-scrollbar { width: 6px; }
+.fl-panel-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 3px; }
+
+.fl-panel-sec { font-size: 11px; letter-spacing: 0.14em; opacity: 0.5; margin: 12px 4px 8px; }
+
+/* ---------- 选歌面板（v10.9.1，右上，与主题面板左右对称） ---------- */
+
+.fl-tracks {
+  position: absolute;
+  right: 16px;
+  top: 84px;
+  z-index: 8;
+  width: 372px;
+  max-height: calc(100% - 180px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  background: rgba(18, 18, 23, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  animation: fl-panel-in 0.24s var(--fl-ease);
+  overflow: hidden;
+}
+.fl-tracks.hidden { display: none; }
+
+.fl-tracks-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.fl-tracks-count { font-size: 11px; font-weight: 400; opacity: 0.45; letter-spacing: 0.08em; }
+.fl-tracks-head .fl-btn { margin-left: auto; }
+
+.fl-tracks-body { overflow-y: auto; padding: 2px 8px 10px; }
+.fl-tracks-body::-webkit-scrollbar { width: 6px; }
+.fl-tracks-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 3px; }
+
+.fl-track-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  text-align: left;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.fl-track-row:hover { background: rgba(255, 255, 255, 0.06); }
+.fl-track-row.on { border-color: var(--fl-accent, #c9a56a); background: rgba(201, 165, 106, 0.1); }
+
+.fl-track-no {
+  flex: none;
+  width: 26px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.45;
+  text-align: right;
+}
+.fl-track-row.on .fl-track-no { opacity: 1; color: var(--fl-accent-strong, #e0bc7c); }
+
+.fl-track-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fl-track-title {
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fl-track-row.on .fl-track-title { color: var(--fl-accent-strong, #e0bc7c); }
+.fl-track-artist {
+  font-size: 11px;
+  opacity: 0.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fl-track-dur {
+  flex: none;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.45;
+}
+
+.fl-track-empty { padding: 26px 10px 30px; text-align: center; font-size: 12.5px; opacity: 0.45; }
+.fl-track-empty.hidden { display: none; }
+
+/* 主题卡 */
+.fl-theme-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 13px;
+  border: 1px solid transparent;
+  text-align: left;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+.fl-theme-card:hover { background: rgba(255, 255, 255, 0.06); }
+.fl-theme-card.on { border-color: var(--fl-accent, #c9a56a); background: rgba(201, 165, 106, 0.1); }
+.fl-theme-ico {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--fl-accent-strong, #e0bc7c);
+}
+.fl-theme-card.on .fl-theme-ico { background: rgba(201, 165, 106, 0.22); }
+.fl-theme-meta { flex: 1; min-width: 0; }
+.fl-theme-name { font-size: 13.5px; font-weight: 600; letter-spacing: 0.03em; }
+.fl-theme-desc { font-size: 11.5px; opacity: 0.55; margin-top: 2px; line-height: 1.45; }
+.fl-theme-tag {
+  flex: none;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  opacity: 0.7;
+}
+.fl-theme-tag.d3 { color: var(--fl-accent-strong, #e0bc7c); border-color: rgba(201, 165, 106, 0.5); }
+
+/* 主题卡内展开的参数滑条（M2） */
+.fl-theme-params { padding: 2px 12px 10px 64px; }
+.fl-theme-params.hidden { display: none; }
+.fl-param-row { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+.fl-param-row label { font-size: 11.5px; opacity: 0.62; width: 56px; flex: none; }
+.fl-param-row input[type="range"] { flex: 1; }
+.fl-param-row .fl-param-num { font-size: 11px; opacity: 0.55; width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 面板底部操作 */
+.fl-panel-foot { display: flex; gap: 8px; padding: 10px 14px 14px; }
+.fl-panel-btn {
+  flex: 1;
+  padding: 8px 0;
+  border-radius: 10px;
+  font-size: 12.5px;
+  letter-spacing: 0.05em;
+  background: rgba(255, 255, 255, 0.07);
+  transition: background-color 0.15s ease;
+}
+.fl-panel-btn:hover { background: rgba(255, 255, 255, 0.13); }
+
+/* v10.9 弹出方式三选一（面板内 chip 组；选中态与主题卡 .on 同语言） */
+.fl-reveal-box { flex: 1; display: flex; gap: 6px; min-width: 0; }
+.fl-reveal-chip {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 4px;
+  border-radius: 9px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fl-ink);
+  opacity: 0.66;
+  background: rgba(255, 255, 255, 0.07);
+  transition: background-color 0.15s ease, opacity 0.15s ease, color 0.15s ease;
+}
+.fl-reveal-chip:hover { opacity: 0.9; background: rgba(255, 255, 255, 0.12); }
+.fl-reveal-chip.on {
+  opacity: 1;
+  color: var(--fl-accent-strong, #e0bc7c);
+  background: rgba(201, 165, 106, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(201, 165, 106, 0.35);
+}
+
+/* ---------- 主题：流光 Lumen（默认） ---------- */
+
+#fl-stage[data-theme="lumen"] .fl-line {
+  font-size: calc(var(--fl-size) * 0.8);
+  color: var(--fl-ink);
+  opacity: calc(0.22 + 0.78 * (1 - var(--ad, 0) * 0.16));
+  transform: translateY(calc(var(--d, 0) * var(--fl-gap) - 50%)) scale(calc(1 - var(--ad, 0) * 0.02));
+  transition: opacity 0.28s ease, font-size 0.35s var(--fl-ease), color 0.35s ease, text-shadow 0.35s ease;
+}
+#fl-stage[data-theme="lumen"] .fl-line.active {
+  font-size: var(--fl-size);
+  text-shadow: 0 0 32px var(--fl-c1, rgba(201, 165, 106, 0.55)), 0 2px 18px rgba(0, 0, 0, 0.35);
+}
+/* 鼓点呼吸 + 换行弹击：--fl-beat 由舞台主控每帧写入，--fl-pop 由主题
+   JS（GSAP）在换行时写一次——两者都只进 calc，不碰布局 */
+#fl-stage[data-theme="lumen"] .fl-line.active {
+  transform: translateY(calc(var(--d, 0) * var(--fl-gap) - 50%)) scale(calc(1 + var(--fl-beat, 0) * 0.018 + var(--fl-pop, 0) * 0.025));
+}
+#fl-stage[data-theme="lumen"] .fl-bg-scrim { opacity: 0.9; }
+
+/* ---------- 主题：倾诉 Whisper ---------- */
+
+#fl-stage[data-theme="whisper"] .fl-line {
+  font-size: calc(var(--fl-size) * 0.78);
+  color: rgba(214, 224, 235, 0.82);
+  opacity: calc(0.2 + 0.8 * (1 - var(--ad, 0) * 0.14));
+  transform: translateY(calc(var(--d, 0) * var(--fl-gap) - 50%));
+  transition: opacity 0.28s ease, font-size 0.35s var(--fl-ease), color 0.35s ease, filter 0.45s ease;
+  will-change: transform, opacity, filter;
+}
+/* 非当前行朦胧：静态 filter（不随帧变，层内位移仍是廉价合成） */
+#fl-stage[data-theme="whisper"] .fl-line:not(.active) { filter: blur(calc(var(--fl-p-soft, 0.9) * 1px)); }
+#fl-stage[data-theme="whisper"] .fl-line.active {
+  font-size: calc(var(--fl-size) * 0.94);
+  color: #eef4fa;
+}
+/* 换行呼吸：--fl-whisper-breath 由主题 JS（GSAP）写，只进 opacity calc */
+#fl-stage[data-theme="whisper"] .fl-line.active::after {
+  content: '';
+  position: absolute;
+  inset: -0.5em -4vw;
+  z-index: -1;
+  background: radial-gradient(ellipse at center, rgba(140, 180, 210, 0.17), transparent 68%);
+  opacity: calc(0.5 + var(--fl-whisper-breath, 0) * 0.5);
+  pointer-events: none;
+}
+/* 词级轻摇：动画 translate 独立属性（.fl-w 无定位链，自由）；
+   三组相位错峰 → 行间像声波一样此起彼伏。
+   keyframes 里的 var() 逐帧实时求值：--fl-whisper-y（GSAP 入场浮出）
+   与 --fl-p-sway（面板滑条）都能被动画消费。 */
+@keyframes fl-whisper-sway {
+  0%, 100% { translate: calc(var(--fl-p-sway, 7) * 1px) calc(var(--fl-whisper-y, 0) * 1px); }
+  50% { translate: calc(var(--fl-p-sway, 7) * -1px) calc(var(--fl-whisper-y, 0) * 1px); }
+}
+#fl-stage[data-theme="whisper"] .fl-w { animation: fl-whisper-sway 5.2s ease-in-out infinite; }
+#fl-stage[data-theme="whisper"] .fl-line:nth-child(3n+1) .fl-w { animation-delay: -0.6s; }
+#fl-stage[data-theme="whisper"] .fl-line:nth-child(3n+2) .fl-w { animation-delay: -2.4s; }
+#fl-stage[data-theme="whisper"] .fl-line:nth-child(3n+3) .fl-w { animation-delay: -4.1s; }
+/* 当前行摇得更慢更稳（可读性优先） */
+#fl-stage[data-theme="whisper"] .fl-line.active .fl-w { animation-duration: 7.5s; }
+
+/* ---------- 主题：回环 Orbit ---------- */
+
+#fl-stage[data-theme="orbit"] .fl-line {
+  font-size: calc(var(--fl-size) * 0.82);
+  color: rgba(235, 228, 240, 0.78);
+  opacity: calc(0.18 + 0.82 * (1 - var(--ad, 0) * 0.13));
+  /* 跑道扇出 + 整体缓慢漂移（--fl-orbit-phase，15fps 节流）：
+     全部走 translate / rotate / scale 独立属性，定位 transform 不参与 */
+  translate: calc((var(--d, 0) + var(--fl-orbit-phase, 0) * 0.45) * var(--fl-p-spread, 1.1) * 1vw) 0;
+  rotate: calc((var(--d, 0) * var(--fl-p-tilt, 8) * -1 + var(--fl-orbit-kick, 0) * var(--fl-p-tilt, 8) * 0.35) * 1deg);
+  scale: calc(1 - var(--ad, 0) * 0.045);
+  transition: opacity 0.28s ease, font-size 0.35s var(--fl-ease), color 0.35s ease;
+}
+#fl-stage[data-theme="orbit"] .fl-line.active {
+  font-size: var(--fl-size);
+  color: #fdf6ff;
+  text-shadow: 0 0 30px rgba(216, 140, 220, 0.5), 0 2px 16px rgba(0, 0, 0, 0.4);
+}
+/* 当前行背后的光台（::before 负 z-index 衬在文字下） */
+#fl-stage[data-theme="orbit"] .fl-line.active::before {
+  content: '';
+  position: absolute;
+  inset: -0.45em -4vw;
+  z-index: -1;
+  background: radial-gradient(ellipse at center, rgba(190, 120, 220, 0.15), transparent 70%);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+/* ---------- 主题：群唱 Chorus ---------- */
+
+#fl-stage[data-theme="chorus"] .fl-line {
+  font-size: calc(var(--fl-size) * 0.84);
+  color: rgba(240, 236, 228, 0.8);
+  opacity: calc(0.2 + 0.8 * (1 - var(--ad, 0) * 0.15));
+  transition: opacity 0.28s ease, font-size 0.35s var(--fl-ease), color 0.35s ease;
+}
+/* 对唱舞台：非主唱声线偏右、主唱声线偏左（仅对唱歌有 data-agent） */
+#fl-stage[data-theme="chorus"] .fl-line.duet-line { translate: calc(var(--fl-p-gap, 24) * 0.42vw) 0; }
+#fl-stage[data-theme="chorus"] .fl-line[data-agent]:not(.duet-line) { translate: calc(var(--fl-p-gap, 24) * -0.24vw) 0; }
+#fl-stage[data-theme="chorus"] .fl-line.active {
+  font-size: var(--fl-size);
+  color: #fff8ec;
+  text-shadow: 0 0 30px rgba(235, 170, 90, 0.45), 0 2px 16px rgba(0, 0, 0, 0.38);
+}
+/* 合唱墙：当前行带背景人声时，主行收小、bg 块飞向两侧翅膀 */
+#fl-stage[data-theme="chorus"] .fl-line.active.has-bg .fl-w { scale: 0.92; }
+#fl-stage[data-theme="chorus"] .fl-line.active.has-bg .fl-bg {
+  position: absolute;
+  top: 50%;
+  margin-top: 0;   /* 盖掉基础规则的 0.3em（绝对定位下 margin 仍参与偏移） */
+  font-size: calc(1em * var(--fl-p-lift, 1.12));
+  font-weight: 600;
+  max-width: 32vw;
+  text-align: center;
+  line-height: 1.35;
+}
+#fl-stage[data-theme="chorus"] .fl-line.active.has-bg .fl-bg.bg-main {
+  left: calc(50% - var(--fl-p-gap, 24) * 1vw);
+  transform: translate(-50%, -50%);
+  translate: calc(var(--fl-chorus-slide, 0) * -16vw) 0;
+  color: rgba(255, 214, 150, 0.92);
+  text-shadow: 0 0 22px rgba(235, 170, 90, 0.35);
+}
+#fl-stage[data-theme="chorus"] .fl-line.active.has-bg .fl-bg.bg-duet {
+  left: calc(50% + var(--fl-p-gap, 24) * 1vw);
+  transform: translate(-50%, -50%);
+  translate: calc(var(--fl-chorus-slide, 0) * 16vw) 0;
+  color: rgba(170, 210, 255, 0.92);
+  text-shadow: 0 0 22px rgba(140, 180, 235, 0.35);
+}
+
+/* ---------- 主题：镜台 Mirror（canvas/GL 层由 fl-theme-mirror.js 管理） ---------- */
+
+/*
+ * 镜台：3D 点云星海在歌词背后起伏（fx 层 z:2，歌词 z:3 叠在其前）。
+ * CSS 侧只负责文字效果与「镜台感」的收尾：
+ *   - active 行带 --fl-pop 弹入（与流光同语言，保持主题间一致手感）；
+ *   - 行随距离轻微缩放（景深，scale 独立属性，不碰 transform 定位链）；
+ *   - scrim 加深：3D 背景比纯封面模糊亮，必须压暗保可读性。
+ * 粒子的呼吸/低频外扩/换行涟漪全在 GPU（ShaderMaterial uniform），
+ * CSS 降级模式下 --fl-mirror-ripple 驱动 active 行的一次微亮。
+ */
+#fl-stage[data-theme="mirror"] .fl-line {
+  font-size: calc(var(--fl-size) * 0.96);
+  color: rgba(238, 240, 246, 0.62);
+  opacity: calc(0.14 + 0.86 * (1 - var(--ad, 0) * 0.11));
+  /* 不重写 transform：定位链路由基础 .fl-line 提供；景深缩放走 scale
+     独立属性（与 Orbit 同纪律） */
+  scale: calc(1 - var(--ad, 0) * 0.022);
+  transition: opacity 0.3s ease, scale 0.3s var(--fl-ease), color 0.3s ease;
+}
+#fl-stage[data-theme="mirror"] .fl-line.active {
+  color: #f4f6fb;
+  font-size: var(--fl-size);
+  letter-spacing: 0.02em;
+  scale: calc(1 + var(--fl-pop, 0) * 0.02);
+  text-shadow:
+    0 0 26px rgba(190, 205, 235, calc(0.34 + var(--fl-mirror-ripple, 0) * 0.3)),
+    0 2px 18px rgba(0, 0, 0, 0.4);
+}
+#fl-stage[data-theme="mirror"] .fl-line.active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 118%;
+  height: 2.6em;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center,
+    rgba(190, 205, 235, calc(0.1 + var(--fl-mirror-ripple, 0) * 0.16)) 0%,
+    transparent 68%);
+  opacity: calc(0.5 + var(--fl-beat, 0) * 0.5);
+  pointer-events: none;
+}
+#fl-stage[data-theme="mirror"] .fl-bg-scrim { opacity: 1; }
+/* 镜台下非活跃行更暗：把视觉重心让给背后的星海 */
+#fl-stage[data-theme="mirror"] .fl-line:not(.active) { color: rgba(238, 240, 246, 0.4); }
+
+/* ---------- 主题：凝彩 Prism ---------- */
+
+/*
+ * 凝彩：当前行是一道被棱镜折射的光带。
+ *   - 色散边缘：红/青双向 text-shadow 错位，量 = --fl-p-stretch；
+ *   - 玻璃底：linear-gradient 半透明带 + 上下亮边（sheen 控强度），
+ *     刻意不用 backdrop-filter —— 它逐行触发大面积重绘，违背
+ *     「blur 只出现在静态层」的性能纪律；
+ *   - 背景光锥：conic-gradient 慢转（transform 旋转，合成器执行）。
+ * JS 钩子只动画 --fl-prism-flare（耀斑），CSS 侧只消费变量。
+ */
+#fl-stage[data-theme="prism"] #fl-bg::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 150vmax;
+  height: 150vmax;
+  translate: -50% -50%;
+  background: conic-gradient(from 0deg,
+    transparent 0deg,
+    rgba(255, 190, 160, 0.05) 18deg,
+    transparent 44deg,
+    rgba(160, 210, 255, 0.06) 76deg,
+    transparent 108deg,
+    rgba(255, 220, 170, 0.045) 150deg,
+    transparent 190deg,
+    rgba(190, 170, 255, 0.05) 232deg,
+    transparent 268deg,
+    rgba(255, 190, 160, 0.05) 320deg,
+    transparent 360deg);
+  animation: fl-prism-spin 44s linear infinite;
+  will-change: rotate;
+  pointer-events: none;
+}
+@keyframes fl-prism-spin {
+  from { rotate: 0deg; }
+  to { rotate: 360deg; }
+}
+
+#fl-stage[data-theme="prism"] .fl-line {
+  font-size: calc(var(--fl-size) * 0.9);
+  color: rgba(240, 238, 246, 0.58);
+  opacity: calc(0.16 + 0.84 * (1 - var(--ad, 0) * 0.12));
+  /* 同 Orbit/Mirror 纪律：不重写 transform（定位归基础规则），
+     主题效果全部走独立变换属性与变量 */
+  transition: opacity 0.3s ease, font-size 0.35s var(--fl-ease), color 0.35s ease;
+}
+#fl-stage[data-theme="prism"] .fl-line.active {
+  font-size: var(--fl-size);
+  color: #fffdf8;
+  /* 色散：红青双向错位（stretch=0 时退化为普通阴影） */
+  text-shadow:
+    calc(var(--fl-p-stretch, 0.7) * -1px) 0 0 rgba(255, 120, 120, calc(0.5 + var(--fl-prism-flare, 0) * 0.4)),
+    calc(var(--fl-p-stretch, 0.7) * 1px) 0 0 rgba(120, 220, 255, calc(0.5 + var(--fl-prism-flare, 0) * 0.4)),
+    0 0 30px rgba(255, 240, 220, calc(0.18 + var(--fl-prism-flare, 0) * 0.3));
+}
+/* 玻璃光带：半透明渐变 + 上下亮边（sheen 控强度；静态属性，不逐帧） */
+#fl-stage[data-theme="prism"] .fl-line.active::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 106%;
+  height: 2.2em;
+  translate: -50% -50%;
+  border-radius: 1.1em;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, calc(0.09 * var(--fl-p-sheen, 0.5) + var(--fl-prism-flare, 0) * 0.06)) 0%,
+    rgba(255, 255, 255, 0.02) 46%,
+    rgba(255, 255, 255, 0) 62%,
+    rgba(255, 255, 255, calc(0.05 * var(--fl-p-sheen, 0.5))) 100%);
+  border-top: 1px solid rgba(255, 255, 255, calc(0.16 * var(--fl-p-sheen, 0.5) + var(--fl-prism-flare, 0) * 0.2));
+  border-bottom: 1px solid rgba(255, 255, 255, calc(0.07 * var(--fl-p-sheen, 0.5)));
+  pointer-events: none;
+}
+/* 词填充在光带里用暖白（覆盖 --fl-ink 的冷白，配合色散） */
+#fl-stage[data-theme="prism"] .fl-line.active .fl-w {
+  --fl-ink: #fff6e8;
+}
+
+/* ============================================================
+   v10.9 · 跃迁 Warp（3D 运镜主题）
+   ------------------------------------------------------------
+   三维空间：#fl-stage 出 perspective（摄影机镜头），rig 是
+   #fl-lyrics（JS 每帧写一次 transform——见 fl-themes.js 的
+   makeCamRig），.fl-line 只用 translate/rotate 独立属性排布：
+   行按与当前行的距离（--ad）沉入 Z 轴深处并微微后仰，未唱的
+   行在雾中变小，唱到的行跃迁到镜前。词级弹出（word 模式）时
+   未唱的词沉在 -46px 深处，唱到才向观众弹出。
+   3D 上下文纪律：本主题把 .fl-line 的 opacity 钉成 1——
+   opacity<1 会把行的子树拍平（词的 translateZ 全废），距离
+   衰减改由 Z 景深 + 透视 + 字色 alpha 承担；窗口剔除仍是
+   .fl-out 的 opacity:0 !important（基础规则，压过这里）。
+   ============================================================ */
+#fl-stage[data-theme="warp"] {
+  perspective: 1150px;
+  /* 镜前暖雾 + 上下暗角，把视线压向当前行 */
+  --fl-warp-fog: radial-gradient(ellipse 130% 86% at 50% 44%, transparent 42%, rgba(3, 3, 7, 0.62) 100%);
+}
+#fl-stage[data-theme="warp"] #fl-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--fl-warp-fog);
+  pointer-events: none;
+}
+#fl-stage[data-theme="warp"] #fl-lyrics { transform-style: preserve-3d; will-change: transform; }
+#fl-stage[data-theme="warp"] .fl-line {
+  transform-style: preserve-3d;
+  opacity: 1;                       /* 保 3D 上下文（见上） */
+  translate: 0 0 calc(var(--ad, 0) * var(--fl-p-depth, 1) * -64px);
+  rotate: x calc(var(--ad, 0) * 2.1deg);
+}
+#fl-stage[data-theme="warp"] .fl-in { transform-style: preserve-3d; }
+/* 距离雾：字色 alpha 随距离衰减（color 不拍平 3D 子树） */
+#fl-stage[data-theme="warp"] .fl-line {
+  color: rgba(240, 244, 250, max(0.24, calc(1 - var(--ad, 0) * 0.19)));
+}
+#fl-stage[data-theme="warp"] .fl-line.active {
+  color: #ffffff;
+  text-shadow: 0 0 26px rgba(255, 238, 205, 0.22), 0 2px 20px rgba(0, 0, 0, 0.55);
+}
+/* 逐字弹出（word 模式）：未唱的词沉在深处，唱到才向观众弹出 */
+#fl-stage[data-theme="warp"][data-reveal="word"] .fl-line.rv-on .fl-w {
+  translate: 0 0 -46px;
+  transition: opacity 0.34s ease, filter 0.34s ease, translate 0.4s var(--fl-ease);
+}
+#fl-stage[data-theme="warp"][data-reveal="word"] .fl-line.rv-on .fl-w.w-on { translate: 0 0 0; }
+#fl-stage[data-theme="warp"][data-reveal="word"] .fl-line.rv-on .fl-w.fl-solid { translate: 0 0 0; }
+/* 揭示过渡缩短 opacity 段（Z 飞行即入场；opacity 只在开头快速交接，
+   早早就位，词的 3D 不被 .fl-in 的过渡中 opacity 拍平） */
+#fl-stage[data-theme="warp"][data-reveal="line"] .fl-in,
+#fl-stage[data-theme="warp"][data-reveal="word"] .fl-in {
+  transition: opacity 0.16s linear, translate 0.42s var(--fl-ease),
+              scale 0.42s var(--fl-ease), filter 0.42s var(--fl-ease);
+}
+
+/* ============================================================
+   v10.9 · 星环 Halo（3D 运镜主题）
+   ------------------------------------------------------------
+   环幕：歌词行排在一条绕镜头旋转的圆环上——角度 θ = 行距差
+   × 步距角（--d 带符号、含滑行），行面朝环心（观众）。圆环
+   几何用多项式近似（Chromium 108 无 CSS sin/cos）：
+     x = R·(θ - θ³/6)        （sin θ，|θ|≤45° 误差 <2%）
+     z = R·(-θ²/2 + θ⁴/24)   （cos θ - 1）
+   全部走 CSS 变量，热路径零逐帧 JS 写入；运镜同 Warp（rig）。
+   行的横向分离由圆环承担，纵向 spread 收缩到 38%（螺旋塔感）。
+   ============================================================ */
+#fl-stage[data-theme="halo"] {
+  perspective: 1150px;
+  --fl-halo-r: calc(380px * var(--fl-p-radius, 1));
+}
+#fl-stage[data-theme="halo"] #fl-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 120% 82% at 50% 50%, transparent 46%, rgba(3, 3, 9, 0.6) 100%);
+  pointer-events: none;
+}
+#fl-stage[data-theme="halo"] #fl-lyrics { transform-style: preserve-3d; will-change: transform; }
+#fl-stage[data-theme="halo"] .fl-line {
+  transform-style: preserve-3d;
+  opacity: 1;                       /* 保 3D 上下文（同 Warp） */
+  --fl-halo-t: calc(var(--d, 0) * var(--fl-p-spread, 11) * 0.0174533);
+  translate:
+    calc(var(--fl-halo-r) * (var(--fl-halo-t) - var(--fl-halo-t) * var(--fl-halo-t) * var(--fl-halo-t) / 6))
+    calc(var(--d, 0) * var(--fl-gap) * -0.62)
+    calc(var(--fl-halo-r) * (var(--fl-halo-t) * var(--fl-halo-t) * -0.5 + var(--fl-halo-t) * var(--fl-halo-t) * var(--fl-halo-t) * var(--fl-halo-t) / 24));
+  rotate: y calc(var(--d, 0) * var(--fl-p-spread, 11) * -1deg);
+  color: rgba(238, 244, 250, max(0.2, calc(1 - var(--ad, 0) * 0.2)));
+}
+#fl-stage[data-theme="halo"] .fl-in { transform-style: preserve-3d; }
+#fl-stage[data-theme="halo"] .fl-line.active {
+  color: #ffffff;
+  text-shadow: 0 0 30px rgba(200, 225, 255, 0.26), 0 2px 20px rgba(0, 0, 0, 0.55);
+}
+/* 逐字弹出（word 模式）：同 Warp——词从 -40px 深处弹出 */
+#fl-stage[data-theme="halo"][data-reveal="word"] .fl-line.rv-on .fl-w {
+  translate: 0 0 -40px;
+  transition: opacity 0.34s ease, filter 0.34s ease, translate 0.4s var(--fl-ease);
+}
+#fl-stage[data-theme="halo"][data-reveal="word"] .fl-line.rv-on .fl-w.w-on { translate: 0 0 0; }
+#fl-stage[data-theme="halo"][data-reveal="word"] .fl-line.rv-on .fl-w.fl-solid { translate: 0 0 0; }
+#fl-stage[data-theme="halo"][data-reveal="line"] .fl-in,
+#fl-stage[data-theme="halo"][data-reveal="word"] .fl-in {
+  transition: opacity 0.16s linear, translate 0.42s var(--fl-ease),
+              scale 0.42s var(--fl-ease), filter 0.42s var(--fl-ease);
+}
+
+/* ============================================================
+   帧内写入白名单（JS 侧纪律，CSS 侧对应属性必须可合成）：
+     .fl-line   --d / --ad / --wp（变量）→ transform / opacity / background
+     #fl-stage  --fl-beat / --fl-bass（变量）
+   禁止在帧循环里改：width / height / top / left / margin / font-size /
+   box-shadow / filter —— 这些属性一改就触发重排或重绘，60fps 立刻掉。
+   ============================================================ */
+
+/* 浅色主题兜底：演出层始终是暗色沉浸底（封面模糊 + scrim），
+   不跟随 html[data-theme=light] —— 但按钮 hover 色保留足够对比即可。 */
+
+/* 窗口过矮时压缩行距（JS 也会同步 --fl-gap，这里兜底 CSS 计算） */
+@supports (height: 1dvh) {
+  #fl-stage { --fl-gap: clamp(52px, calc(var(--fl-size) * 2.05), 108px); }
+}

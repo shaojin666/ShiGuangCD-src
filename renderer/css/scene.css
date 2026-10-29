@@ -1,0 +1,393 @@
+/* ============================================================
+   读盘场景 —— 一镜到底（待机 → 滑入 → 扫描 → 揭晓 → 落地）
+   ============================================================ */
+
+#ceremony {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.8s var(--ease-cam), visibility 0.8s;
+  background: var(--bg);
+}
+
+#ceremony.shown {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* 落地瞬间：快速淡出，与正在播放页的唱片同位置衔接 */
+#ceremony.ph-fading {
+  opacity: 0;
+  transition: opacity 0.55s ease;
+}
+
+#vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 220px 60px var(--bg-vignette);
+}
+
+/* 读盘界面覆盖了顶栏，这里补一条与顶栏等高的窗口拖拽条。
+   右侧 260px 让给 no-drag：那里的鼠标事件必须能送达渲染端，
+   否则右上角"鼠标靠近才显示"的退出按钮永远收不到 mousemove。 */
+#ceremony-drag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  height: var(--topbar-h);
+  z-index: 46;
+  -webkit-app-region: drag;
+}
+
+#ceremony-drag .drag-except {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 260px;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+/* ---------- 右上角隐藏退出按钮 ----------
+   默认完全透明（但仍可点击），鼠标进入右上角一定半径后淡入。
+   用 JS 距离判定加 .near 类，而不是 :hover —— 按钮本体太小，hover 摸不到。 */
+#ceremony-exit {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  z-index: 60;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--glass);
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity 0.28s ease, transform 0.28s ease, color 0.2s ease, border-color 0.2s ease;
+  -webkit-app-region: no-drag;
+}
+
+#ceremony-exit.near,
+#ceremony-exit:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+#ceremony-exit:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+/* 相机：所有阶段的推拉镜头都发生在这里 */
+#camera {
+  position: absolute;
+  inset: 0;
+  transform: scale(1) translate(0, 0);
+  transition: transform 1.5s var(--ease-cam);
+  will-change: transform;
+}
+
+/* ---------- 托盘 ---------- */
+
+#tray {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  width: 540px;
+  height: 118px;
+  transform: translate(-50%, -50%);
+  background: var(--tray);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 4px 18px var(--shadow-deep),
+    inset 0 -2px 0 var(--sheen);
+  transition: box-shadow 1s var(--ease-cam), border-color 1s var(--ease-cam);
+}
+
+#tray-lip {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: 5px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--sheen);
+  transition: background 1s var(--ease-cam);
+}
+
+/* ---------- 光盘 ---------- */
+
+#disc-shell {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  width: 0;
+  height: 0;
+}
+
+#disc-outer {
+  position: absolute;
+  left: -150px;
+  top: -150px;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  opacity: 0;
+  transform: translateX(420px) scale(0.92);
+  transition: transform 1.15s var(--ease-cam), opacity 0.5s ease;
+  will-change: transform;
+}
+
+/* 通用唱片组件（仪式与正在播放页共用） */
+.disc-spin {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  animation: discspin 16s linear infinite;
+}
+
+.disc-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--surface-3);
+  background-size: cover;
+  background-position: center;
+  box-shadow:
+    inset 0 0 0 1px var(--sheen),
+    inset 0 0 0 3px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 56px var(--accent-soft),
+    inset 0 0 0 59px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 62px var(--sheen),
+    inset 0 0 0 88px var(--bar-line),
+    inset 0 0 0 114px var(--bar-line);
+}
+
+.disc-face.has-cover {
+  box-shadow:
+    inset 0 0 0 2px var(--sheen),
+    inset 0 0 24px rgba(0, 0, 0, 0.28);
+}
+
+.disc-hole {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: inset 0 0 6px var(--shadow-deep);
+  z-index: 2;
+}
+
+@keyframes discspin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------- 激光 / 读取进度 ---------- */
+
+#laser-wrap {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  transition: opacity 0.7s ease;
+  color: var(--accent);
+}
+
+#laser {
+  position: absolute;
+  left: -150px;
+  top: -150px;
+  animation: laserturn 6.5s linear infinite;
+  opacity: 0.75;
+}
+
+@keyframes laserturn {
+  to { transform: rotate(360deg); }
+}
+
+#ceremony-read-ring {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  color: var(--accent);
+}
+
+#ceremony-read-ring svg {
+  position: absolute;
+  left: -150px;
+  top: -150px;
+  transform: rotate(-90deg);
+}
+
+#ceremony-read-ring .arc {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 766.4;
+  stroke-dashoffset: 766.4;
+  transition: stroke-dashoffset 0.4s linear;
+}
+
+/* ---------- 文案 ---------- */
+
+#ceremony-text {
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  transform: translate(-50%, 0);
+  text-align: center;
+  width: 640px;
+  transition: transform 1.2s var(--ease-cam), opacity 0.6s ease;
+}
+
+#ceremony-title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  letter-spacing: 0.18em;
+  color: var(--text);
+  min-height: 40px;
+}
+
+#ceremony-sub {
+  margin-top: 10px;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  min-height: 20px;
+}
+
+/* ---------- 等待光盘下方的弹出托盘按钮（v10.5） ----------
+   默认完全隐藏（opacity 0），鼠标进入一定半径后淡入 —— 与右上角
+   #ceremony-exit 同一套"靠近才出现"的语言，.near 类由 app.js 的
+   距离判定添加（按钮本体 + 感应半径，纯 :hover 摸不到）。
+   只在待机（无碟）阶段可用：其它阶段直接 display:none。 */
+#ceremony-eject {
+  position: relative;
+  margin: 24px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 20px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--glass);
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
+  transition: opacity 0.3s ease, transform 0.3s var(--ease-cam),
+    color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+#ceremony-eject.near {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+#ceremony-eject:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+#ceremony-eject:active { transform: translateY(0) scale(0.96); }
+
+/* 非待机阶段（滑入 / 读取 / 揭晓 / 出舱中）不给出舱按钮 */
+#ceremony:not(.ph-idle) #ceremony-eject { display: none; }
+
+/* ---------- 各阶段 ---------- */
+
+/* 待机：托盘静置，光盘在画面外 */
+#ceremony.ph-idle #disc-outer {
+  transform: translateX(420px) scale(0.92);
+  opacity: 0;
+}
+
+/* 滑入 + 读取：光盘稳定在托盘内 */
+#ceremony.ph-insert #disc-outer,
+#ceremony.ph-reading #disc-outer {
+  transform: translateX(0) scale(1);
+  opacity: 1;
+}
+
+#ceremony.ph-insert #tray,
+#ceremony.ph-reading #tray {
+  border-color: rgba(201, 165, 106, 0.35);
+  box-shadow:
+    inset 0 4px 18px rgba(0, 0, 0, 0.65),
+    inset 0 0 40px var(--accent-soft);
+}
+
+#ceremony.ph-insert #tray-lip,
+#ceremony.ph-reading #tray-lip { background: rgba(201, 165, 106, 0.35); }
+
+/* 读取：镜头推近，激光扫描，进度环 */
+#ceremony.ph-reading #camera {
+  transform: scale(1.22) translate(0, -1.5%);
+}
+
+#ceremony.ph-reading #laser-wrap { opacity: 1; }
+#ceremony.ph-reading #ceremony-read-ring { opacity: 1; }
+
+#ceremony.ph-reading #ceremony-text {
+  transform: translate(-50%, 56px);
+}
+
+/* 揭晓：镜头拉回，光盘上移居中 */
+#ceremony.ph-reveal #camera {
+  transform: scale(1) translate(0, 0);
+}
+
+#ceremony.ph-reveal #disc-outer {
+  transform: translateY(-46%) scale(1.1);
+  opacity: 1;
+}
+
+#ceremony.ph-reveal #ceremony-text {
+  transform: translate(-50%, 128px);
+}
+
+#ceremony.ph-reveal #laser-wrap,
+#ceremony.ph-reveal #ceremony-read-ring { opacity: 0; }
+
+/* 出舱：光盘滑出 */
+#ceremony.ph-eject #disc-outer {
+  transform: translateX(-420px) scale(0.92);
+  opacity: 0;
+}
+
+#ceremony.ph-eject #tray {
+  border-color: var(--line);
+  box-shadow: inset 0 4px 18px rgba(0, 0, 0, 0.65);
+}
+
+#ceremony.ph-eject #tray-lip { background: var(--sheen); }

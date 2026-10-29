@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'" />
+  <title>悬浮歌词</title>
+  <link rel="stylesheet" href="css/floating.css" />
+</head>
+<body class="unlocked">
+  <!-- #stage 就是整个窗口；#plate 铺满它，所以"窗口大小 = 黑色容器大小" -->
+  <div id="stage">
+    <div id="plate">
+      <!--
+        顶部拖动条：和主窗口顶栏同一个原理 —— -webkit-app-region: drag。
+        由系统/Chromium 直接处理移动，不经过任何 JS 与 IPC，
+        所以没有坐标换算、没有高频 IPC、也不会出现"拖到一半窗口变形"。
+      -->
+      <div id="dragbar" title="按住拖动窗口" data-i18n-title="float.drag"></div>
+
+      <div id="floaty">
+        <!-- 三行各绑定固定角色，永不轮转（见 floating.js 文件头第 2 条） -->
+        <div id="track">
+          <div class="line ghost" data-slot="0"></div>
+          <div class="line" data-slot="1"></div>
+          <div class="line ghost" data-slot="2"></div>
+        </div>
+        <div class="idle" id="idle">♪</div>
+      </div>
+
+      <div class="grip grip-nw" data-edge="nw" title="拖动调整大小" data-i18n-title="float.resize"></div>
+      <div class="grip grip-ne" data-edge="ne" title="拖动调整大小" data-i18n-title="float.resize"></div>
+      <div class="grip grip-sw" data-edge="sw" title="拖动调整大小" data-i18n-title="float.resize"></div>
+      <div class="grip grip-se" data-edge="se" title="拖动调整大小" data-i18n-title="float.resize"></div>
+    </div>
+
+    <!--
+      设置条 / 锁定提示：叠在窗口底部。
+      绝对定位、不占布局、不参与命中；它们必须是 no-drag，
+      否则上面的拖动条语义会被它们意外影响。
+    -->
+    <div id="controls">
+      <div class="swatches" id="swatches">
+        <!-- 颜色一律走 CSS 属性选择器：CSP 的 style-src 'self' 会拦掉 style 属性 -->
+        <button class="sw" data-color="#e9e3d8" title="米白" data-i18n-title="float.color.ivory"></button>
+        <button class="sw" data-color="#c9a56a" title="黄铜" data-i18n-title="float.color.brass"></button>
+        <button class="sw" data-color="#f4f2ea" title="纯白" data-i18n-title="float.color.white"></button>
+        <button class="sw" data-color="#7f9a6f" title="苔绿" data-i18n-title="float.color.moss"></button>
+        <button class="sw" data-color="#7aa2c9" title="雾蓝" data-i18n-title="float.color.blue"></button>
+        <input type="color" id="custom" value="#e9e3d8" title="自定义颜色" data-i18n-title="float.color.custom" />
+      </div>
+      <span class="sep"></span>
+      <span class="ctl-label" data-i18n="float.size">字号</span>
+      <input type="range" id="fsize" min="12" max="64" step="1" value="22" />
+      <span class="ctl-value tabular" id="fsize-val">22</span>
+      <span class="sep"></span>
+      <button id="close" class="x" title="关闭悬浮歌词" data-i18n-title="float.close" data-i18n-aria="float.close">✕</button>
+    </div>
+
+    <div id="lockhint">
+      <span class="lock-icon"></span>
+      <span data-i18n="float.locked">已锁定 · 按鼠标中键解锁</span>
+    </div>
+  </div>
+
+  <script src="js/i18n.js"></script>
+  <script src="js/floating.js"></script>
+</body>
+</html>

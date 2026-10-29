@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<!--
+  拾光 · ShiGuangCD —— 为 CD 而生的桌面播放器
+  Copyright (C) 2026 ShiGuang Studio
+  SPDX-License-Identifier: GPL-3.0-or-later
+  以 GNU GPLv3（或更高版本）发布，协议全文见项目根目录的 LICENSE。
+-->
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' cover: data: blob:; media-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' cover:; font-src 'self' data:" />
+  <title>拾光 · CD</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/scene.css" />
+  <link rel="stylesheet" href="css/pages.css" />
+  <link rel="stylesheet" href="css/panels.css" />
+  <link rel="stylesheet" href="css/fl-stage.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- 专辑取色背景层（纯视觉）：两层封面交叉淡入 + 随鼓点缩放 -->
+    <div id="bg-stage" aria-hidden="true">
+      <div class="bg-art" id="bg-art-a"></div>
+      <div class="bg-art" id="bg-art-b"></div>
+      <div class="bg-glow"></div>
+      <div class="bg-tint"></div>
+      <div class="bg-vignette"></div>
+    </div>
+
+    <!-- 顶栏：同时也是无边框窗口的拖拽区（含自绘窗口控件） -->
+    <header id="topbar">
+      <div class="brand">
+        <svg class="brand-mark" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="10.2" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <circle cx="12" cy="12" r="4.6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <circle cx="12" cy="12" r="1.1" fill="currentColor"/>
+        </svg>
+        <span class="brand-name">拾光</span>
+        <span class="brand-tag">CD</span>
+      </div>
+      <nav id="nav">
+        <button id="nav-library" class="nav-btn" data-page="library" data-i18n="app.nav.library">音乐库</button>
+        <button id="nav-nowplaying" class="nav-btn" data-page="nowplaying" data-i18n="app.nav.nowplaying">正在播放</button>
+      </nav>
+      <div class="top-right">
+        <span id="drive-chip" class="chip hidden"></span>
+        <!-- 工具键：全屏 / 深浅色 / 设置 保持在一起 -->
+        <div class="tool-group">
+          <button id="win-full" class="tool-btn" type="button" title="全屏" aria-label="全屏"
+                  data-i18n-title="app.tool.fullscreen" data-i18n-aria="app.tool.fullscreen">
+            <svg class="wi w-enter" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+              <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>
+            </svg>
+            <svg class="wi w-exit" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+              <path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/>
+            </svg>
+          </button>
+          <button id="btn-theme" class="tool-btn" type="button" title="切换深色 / 浅色" aria-label="切换深色 / 浅色"
+                  data-i18n-title="app.tool.theme" data-i18n-aria="app.tool.theme">
+            <svg class="t-icon t-dark" width="17" height="17" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+              <path d="M20.2 14.6A8.4 8.4 0 0 1 9.4 3.8a8.6 8.6 0 1 0 10.8 10.8z"/>
+            </svg>
+            <svg class="t-icon t-light" width="17" height="17" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+              <circle cx="12" cy="12" r="4.2"/>
+              <path d="M12 2.4v2.6M12 19v2.6M2.4 12h2.6M19 12h2.6M5.2 5.2l1.9 1.9M16.9 16.9l1.9 1.9M18.8 5.2l-1.9 1.9M7.1 16.9l-1.9 1.9"/>
+            </svg>
+          </button>
+          <button id="btn-settings" class="tool-btn" type="button" title="设置" aria-label="设置"
+                  data-i18n-title="app.tool.settings" data-i18n-aria="app.tool.settings">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <circle cx="12" cy="12" r="3.1"/>
+              <path d="M19.1 12a7.1 7.1 0 0 0-.12-1.3l2-1.55-2-3.46-2.36.96a7.1 7.1 0 0 0-2.25-1.3L14 3.2h-4l-.37 2.15a7.1 7.1 0 0 0-2.25 1.3l-2.36-.96-2 3.46 2 1.55a7.1 7.1 0 0 0 0 2.6l-2 1.55 2 3.46 2.36-.96a7.1 7.1 0 0 0 2.25 1.3l.37 2.15h4l.37-2.15a7.1 7.1 0 0 0 2.25-1.3l2.36.96 2-3.46-2-1.55c.08-.43.12-.86.12-1.3z"/>
+            </svg>
+          </button>
+        </div>
+        <span class="win-divider" aria-hidden="true"></span>
+        <!-- 窗口键：最小化 / 最大化⇄还原 / 关闭（关闭贴住窗口右上角） -->
+        <div id="win-controls" class="win-controls">
+          <button id="win-min" class="win-btn" type="button" title="最小化" aria-label="最小化"
+                  data-i18n-title="app.win.min" data-i18n-aria="app.win.min">
+            <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
+              <path d="M1 5.5h9" stroke="currentColor" stroke-width="1"/>
+            </svg>
+          </button>
+          <button id="win-max" class="win-btn" type="button" title="最大化" aria-label="最大化"
+                  data-i18n-title="app.win.max" data-i18n-aria="app.win.max">
+            <svg class="wi w-max" width="11" height="11" viewBox="0 0 11 11" fill="none"
+                 stroke="currentColor" stroke-width="1" aria-hidden="true">
+              <rect x="1" y="1" width="9" height="9"/>
+            </svg>
+            <svg class="wi w-restore" width="11" height="11" viewBox="0 0 11 11" fill="none"
+                 stroke="currentColor" stroke-width="1" aria-hidden="true">
+              <rect x="1" y="3" width="7" height="7"/>
+              <path d="M3 3V1h7v7H8"/>
+            </svg>
+          </button>
+          <button id="win-close" class="win-btn close" type="button" title="关闭" aria-label="关闭"
+                  data-i18n-title="app.win.close" data-i18n-aria="app.win.close">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor"
+                 stroke-width="1.1" stroke-linecap="round" aria-hidden="true">
+              <path d="M1 1l9 9M10 1l-9 9"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- 一镜到底读盘场景 -->
+    <div id="ceremony" class="ph-none">
+      <div id="camera">
+        <div id="tray">
+          <div id="tray-lip"></div>
+        </div>
+        <div id="disc-shell">
+          <div id="disc-outer">
+            <div class="disc-spin" id="cer-disc-spin">
+              <div id="disc-face" class="disc-face"></div>
+              <div id="disc-hole" class="disc-hole"></div>
+            </div>
+          </div>
+        </div>
+        <div id="laser-wrap">
+          <svg id="laser" width="300" height="300" viewBox="0 0 300 300" aria-hidden="true">
+            <circle cx="150" cy="150" r="128" fill="none" stroke="currentColor" stroke-width="1.1"
+                    stroke-dasharray="8 18" stroke-linecap="round"/>
+            <line x1="150" y1="150" x2="150" y2="22" stroke="currentColor" stroke-width="1.4"/>
+            <circle cx="150" cy="150" r="2.6" fill="currentColor"/>
+          </svg>
+        </div>
+        <div id="ceremony-read-ring">
+          <svg width="300" height="300" viewBox="0 0 300 300" aria-hidden="true">
+            <circle cx="150" cy="150" r="122" fill="none" stroke="currentColor" stroke-width="2" class="arc"/>
+          </svg>
+        </div>
+        <div id="ceremony-text">
+          <div id="ceremony-title"></div>
+          <div id="ceremony-sub"></div>
+          <!-- 弹出托盘按钮（v10.5）：默认隐藏，鼠标靠近淡入，点击弹出托盘。
+               只在待机（无碟）阶段可用，见 scene.css 的 ph-idle 规则 -->
+          <button type="button" id="ceremony-eject" class="ceremony-eject" aria-label="弹出托盘"
+                  data-i18n-aria="scene.ejectTray">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 3.4 21.4 16.2H2.6z"/>
+              <rect x="4" y="18.6" width="16" height="2.3" rx="1.15"/>
+            </svg>
+            <span data-i18n="scene.ejectTray">弹出托盘</span>
+          </button>
+        </div>
+      </div>
+      <div id="vignette"></div>
+      <!-- 无边框窗口下顶栏被本场景盖住，这里补一条拖拽条（右侧留出按钮区）
+           否则读盘界面下窗口无法拖动。 -->
+      <div id="ceremony-drag" aria-hidden="true"><span class="drag-except"></span></div>
+      <!-- 右上角隐藏退出按钮：鼠标靠近才淡入，无光盘也能进入音乐库 -->
+      <button id="ceremony-exit" title="退出读盘界面" aria-label="退出读盘界面"
+              data-i18n-title="scene.exit" data-i18n-aria="scene.exit">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+             stroke-linecap="round">
+          <path d="M6 6l12 12M18 6L6 18"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 页面 -->
+    <main id="pages">
+      <section id="page-library" class="page"></section>
+      <section id="page-nowplaying" class="page"></section>
+    </main>
+
+    <!-- 覆盖层 -->
+    <div id="overlay-edit" class="overlay hidden"></div>
+    <div id="overlay-album" class="overlay album-overlay hidden"></div>
+    <div id="overlay-settings" class="overlay hidden"></div>
+    <div id="need-disc" class="overlay hidden"></div>
+    <div id="toast" class="hidden"></div>
+
+  </div>
+  <script src="js/i18n.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/transport.js"></script>
+  <script src="js/scene.js"></script>
+  <script src="js/visualizer.js"></script>
+  <script src="js/library.js"></script>
+  <script src="js/album.js"></script>
+  <script src="js/lyrics-view.js"></script>
+  <script src="js/nowplaying.js"></script>
+  <script src="js/edit.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/smtc.js"></script>
+  <!-- 全屏歌词演出层（v10.8）：tween.js 提供一次性编排补间（v10.12 取代
+       GSAP，见 renderer/js/tween.js 头注释）；
+       fl-theme-mirror.js 提供「镜台」注册器（three.js 本体由 mount()
+       按需懒加载，不进首屏）；fl-fonts.js 管理演出层字体
+       （自定义字体经 fl:read-font 拿 dataURL 注入 @font-face，
+        故 CSP 需 style-src 'unsafe-inline' + font-src data:） -->
+  <script src="js/tween.js"></script>
+  <script src="js/fl-lyrics.js"></script>
+  <script src="js/fl-themes.js"></script>
+  <!-- 镜台 3D 主题（注册器；three.min.js 本体由 mount() 按需懒加载） -->
+  <script src="js/fl-theme-mirror.js"></script>
+  <script src="js/fl-capsule.js"></script>
+  <script src="js/fl-panel.js"></script>
+  <script src="js/fl-tracks.js"></script>
+  <script src="js/fl-stage.js"></script>
+  <script src="js/fl-fonts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

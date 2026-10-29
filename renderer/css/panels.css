@@ -1,0 +1,860 @@
+/* ============================================================
+   覆盖层：编辑面板 / 设置 / 放入光盘提示 / 提示条
+   ============================================================ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: overlayin 0.35s var(--ease-cam);
+}
+
+@keyframes overlayin {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.panel {
+  width: 640px;
+  max-width: calc(100vw - 80px);
+  max-height: calc(100vh - 120px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 24px 80px var(--shadow-deep);
+  display: flex;
+  flex-direction: column;
+  animation: panelin 0.4s var(--ease-cam);
+}
+
+@keyframes panelin {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.panel-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  letter-spacing: 0.12em;
+  color: var(--text);
+}
+
+/* 标题右侧的状态标记（如「已编辑」「未在光驱中」） */
+.panel-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.panel-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border: 1px solid rgba(201, 165, 106, 0.4);
+  border-radius: 4px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  white-space: nowrap;
+}
+
+.panel-badge.ghost {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.panel-close {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-faint);
+  transition: color 0.25s ease, background-color 0.25s ease;
+}
+
+.panel-close:hover { color: var(--text); background: var(--win-btn-hover); }
+
+.panel-body {
+  padding: 20px 22px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.panel-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 22px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.panel-foot .spacer { flex: 1; }
+
+/* 在线信息获取区（编辑面板底部）：关键词输入 + 两个获取按钮 */
+.meta-search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.meta-search .field-label { margin-bottom: 0; }
+.meta-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.meta-search-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 表单控件 */
+.field { margin-bottom: 16px; }
+
+.field-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--text-faint);
+  margin-bottom: 7px;
+}
+
+input[type="text"],
+input[type="number"],
+textarea {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 11px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  transition: border-color 0.25s ease;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+textarea:focus {
+  border-color: rgba(201, 165, 106, 0.55);
+  outline: none;
+}
+
+textarea { resize: vertical; min-height: 120px; line-height: 1.6; }
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+/* 专辑 / 歌手介绍输入框（v10.4）：比歌词 LRC 框矮，行数由 rows 控制 */
+.intro-input {
+  min-height: 88px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+/* 字段说明文字（如多碟专辑的提示），比 field-label 更弱化 */
+.field-hint {
+  margin: -6px 0 16px 0;
+  font-size: 11px;
+  line-height: 1.6;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+
+.btn {
+  padding: 8px 18px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+
+.btn:hover { background: var(--surface-3); border-color: var(--line-strong); }
+
+.btn.accent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.btn.accent:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+}
+
+.btn.ghost:hover { color: var(--text); background: var(--win-btn-hover); }
+
+.btn.danger { color: var(--danger); border-color: rgba(166, 93, 84, 0.4); }
+.btn.danger:hover { background: rgba(166, 93, 84, 0.12); }
+
+.btn:disabled { opacity: 0.4; }
+
+/* 编辑面板轨道列表 */
+.etrack {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.etrack-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+
+.etrack-num {
+  font-size: 11px;
+  color: var(--accent-strong);
+  letter-spacing: 0.1em;
+  min-width: 26px;
+}
+
+.etrack-title {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  padding: 4px 0;
+}
+
+.etrack-title:focus { border: 0; outline: none; box-shadow: none; }
+
+.etrack-body { padding: 10px 12px; }
+
+.etrack-body textarea {
+  background: var(--surface);
+  border-color: var(--line-soft);
+  font-size: 12px;
+}
+
+.etrack-toggle {
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.1em;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 9px;
+  transition: color 0.25s ease, border-color 0.25s ease, background-color 0.25s ease;
+}
+
+.etrack-toggle:hover { color: var(--text); }
+.etrack-toggle.open { color: var(--accent-strong); border-color: rgba(201, 165, 106, 0.4); background: var(--accent-soft); }
+
+/* 轨道头「歌词」按钮上的来源个数角标 */
+.etrack-badge {
+  display: inline-block;
+  min-width: 15px;
+  margin-left: 5px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink, #1a1a1c);
+  font-size: 9px;
+  line-height: 15px;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+/* ============================================================
+   歌词源管理（编辑面板 · 每轨展开区）
+   .esrc          来源列表 / TTML 粘贴区的公共外框
+   .esrc-row      一行来源（整体是 button，点选启用）
+   ============================================================ */
+
+.esrc { margin-bottom: 14px; }
+
+.esrc-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  margin-bottom: 7px;
+}
+
+.esrc-hint {
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: 0.03em;
+  color: var(--text-faint);
+  padding: 9px 11px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+}
+
+.esrc-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.esrc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  text-align: left;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.esrc-row:hover { border-color: var(--line); background: var(--win-btn-hover); }
+
+.esrc-row.on {
+  border-color: rgba(201, 165, 106, 0.55);
+  background: var(--accent-soft);
+}
+
+/* 单选圆点：未选空心、选中实心（随 .on 切换） */
+.esrc-radio {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1px solid var(--text-faint);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.esrc-row.on .esrc-radio {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 2.5px var(--accent);
+}
+
+.esrc-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.esrc-row.on .esrc-name { color: var(--accent-strong); }
+
+.esrc-meta {
+  flex: none;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+/* 手动候选的删除小钮（只对手动 TTML 显示） */
+.esrc-del {
+  flex: none;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 7px;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.esrc-del:hover { color: var(--danger); border-color: rgba(166, 93, 84, 0.5); }
+
+/* ---------- TTML 粘贴区 ---------- */
+
+.ttml-box {
+  padding: 11px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.ttml-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 9px;
+}
+
+.ttml-tool { flex: none; font-size: 12px; padding: 6px 12px; }
+
+.ttml-tip {
+  flex: 1;
+  min-width: 180px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+.ttml-input {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  min-height: 96px;
+  margin-bottom: 9px;
+}
+
+.ttml-save { font-size: 12px; padding: 6px 14px; }
+
+/* LRC 文本框（沿用 textarea 基础样式，略降字号与轨道区协调） */
+.etrack-body .lrc-input {
+  background: var(--surface);
+  border-color: var(--line-soft);
+  font-size: 12px;
+}
+
+/* 封面上传 */
+.cover-upload {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.cover-thumb {
+  width: 74px;
+  height: 74px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.cover-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* 设置 */
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.set-row:last-child { border-bottom: 0; }
+
+/* 设置行右侧控件列（如"播放引擎"分段按钮 + 当前生效提示） */
+.set-ctl { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+.set-ctl .set-hint { font-size: 11px; color: var(--text-faint); letter-spacing: 0.05em; min-height: 14px; }
+
+.set-label { font-size: 13px; color: var(--text); letter-spacing: 0.06em; }
+.set-desc { font-size: 11px; color: var(--text-faint); margin-top: 3px; letter-spacing: 0.05em; }
+
+/* ---------- 设置行里的次要按钮（如"打开日志目录"） ---------- */
+.panel-btn {
+  flex: none;
+  padding: 7px 14px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color .18s, border-color .18s, background .18s;
+}
+.panel-btn:hover { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+.panel-btn:disabled { opacity: .5; cursor: default; }
+
+/* ---------- 全屏歌词设置区（v10.8 M4）：下拉 / 字体盒 / 字体列表 ---------- */
+.set-select {
+  flex: none;
+  max-width: 220px;
+  padding: 7px 10px;
+  font-size: 12px;
+  letter-spacing: .04em;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color .18s;
+}
+.set-select:hover { border-color: var(--accent); }
+.set-select:focus-visible { outline: none; border-color: var(--accent); }
+
+.set-font-box { display: flex; align-items: center; gap: 8px; flex: none; }
+.set-font-box .set-select { max-width: 180px; }
+
+.set-font-list { padding: 2px 0 12px; border-bottom: 1px solid var(--line-soft); }
+.set-font-head {
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: .08em;
+  margin: 2px 0 6px;
+}
+.set-font-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+.set-font-name { font-size: 12px; color: var(--text-dim); letter-spacing: .04em; }
+.set-font-size { font-size: 11px; color: var(--text-faint); margin-left: auto; }
+.set-font-item .panel-btn { padding: 4px 12px; font-size: 11px; }
+
+/* 快捷键列表用的键帽 */
+.kbd {
+  flex: none;
+  min-width: 84px;
+  text-align: center;
+  padding: 5px 12px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+}
+
+/* 尺寸调节组（歌词 / 唱片大小 + 恢复默认） */
+.size-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.size-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.size-item .slider { width: 110px; flex: none; }
+
+.size-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  min-width: 28px;
+}
+
+.size-value {
+  font-size: 11px;
+  color: var(--text-faint);
+  min-width: 34px;
+  text-align: right;
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+  transition: color 0.2s ease;
+}
+
+.radio:hover { color: var(--text); }
+
+.radio input { -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface-2); position: relative; }
+.radio input:checked { border-color: var(--accent); }
+.radio input:checked::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 7px; height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* 放入光盘提示 */
+#need-disc .panel {
+  width: 460px;
+  text-align: center;
+}
+
+.nd-mark {
+  width: 120px;
+  height: 120px;
+  margin: 10px auto 20px auto;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 2px var(--sheen),
+    inset 0 0 0 24px var(--accent-soft),
+    inset 0 0 0 26px var(--bar-line);
+  animation: ndbreathe 3s ease-in-out infinite;
+}
+
+@keyframes ndbreathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+.nd-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  letter-spacing: 0.1em;
+  color: var(--text);
+}
+
+.nd-sub {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  line-height: 1.9;
+}
+
+/* 提示条 */
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  z-index: 80;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 13px;
+  color: var(--text);
+  letter-spacing: 0.05em;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  animation: toastin 0.4s var(--ease-cam);
+}
+
+@keyframes toastin {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ---------- 开关 ---------- */
+.switch {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-3);
+  cursor: pointer;
+  transition: background 0.22s ease, border-color 0.22s ease;
+}
+
+.switch-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: transform 0.22s var(--ease-cam), background 0.22s ease;
+}
+
+.switch.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.switch.on .switch-knob {
+  transform: translateX(20px);
+  background: var(--accent);
+}
+
+.switch:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- 外观类开关 ----------
+   与 .switch 同款外观，单独一个类名：新增的外观/动效开关不与既有
+   .switch 锚点混在一起，方便分别定位与维护。 */
+.toggle {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-3);
+  cursor: pointer;
+  transition: background 0.22s ease, border-color 0.22s ease;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: transform 0.22s var(--ease-cam), background 0.22s ease;
+}
+
+.toggle.on { background: var(--accent-soft); border-color: var(--accent); }
+
+.toggle.on .toggle-knob {
+  transform: translateX(20px);
+  background: var(--accent);
+}
+
+.toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- 分段选择器（主题等少数几项） ---------- */
+.seg-group {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 16px;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  border-radius: 999px;
+  transition: background-color 0.24s ease, color 0.24s ease;
+}
+
+.seg-btn:hover { color: var(--text); }
+
+.seg-btn.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.seg-btn .seg-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+}
+
+.seg-btn.on .seg-dot { border-color: var(--accent-ink); background: var(--accent-ink); }
+
+/* ---------- 设置面板：分组标题 ---------- */
+.set-section {
+  padding: 18px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.26em;
+  color: var(--text-faint);
+}
+
+.set-section:first-child { padding-top: 0; }
+
+.set-row {
+  align-items: center;
+  padding: 13px 0;
+}
+
+.set-row.stack {
+  display: block;
+}
+
+.set-row.stack > .set-ctl { margin-top: 10px; }
+
+/* ---------- 设置面板双栏（v10.9.2）：左分类导航（带图标）+ 右设置内容 ----------
+   只作用于设置面板（.set-panel），不碰通用 .panel-body（编辑面板等仍在用） */
+.set-panel { width: 860px; height: min(620px, calc(100vh - 120px)); }
+.set-panel .panel-body { overflow: hidden; padding: 20px 16px; }
+
+.set-layout { display: flex; height: 100%; min-height: 0; }
+
+/* 侧栏宽度按「最长一门语言」定：150px 在简体/英文下够用，但俄文
+   「Воспроизведение」「Полноэкранный текст」这类长词会顶出右边框
+   （实测溢出 49px）。180px 是三者平衡后的值：中文仍显宽松，
+   俄文最长项在 DejaVu（比 Windows 的 Segoe UI 更宽）下也有余量。 */
+.set-nav {
+  flex: none;
+  width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 10px 0 18px;
+  border-right: 1px solid var(--line-soft);
+}
+
+.set-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.18s, background-color 0.18s;
+}
+.set-nav-item svg { flex: none; opacity: 0.85; }
+.set-nav-item:hover { color: var(--text); background: var(--accent-soft); }
+.set-nav-item.on { color: var(--accent-strong); background: var(--accent-soft); }
+
+/* 标签必须能「缩到比内容更窄」才肯换行：flex 项默认 min-width:auto，
+   长单词会被撑开、顶穿边框。min-width:0 + break-word 是最后一道保险，
+   留给以后新增长词语言（德语、芬兰语…）用。 */
+.set-nav-item > span {
+  min-width: 0;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* 西里尔字母在 0.08em 字距下比拉丁字母更占地方。俄文单独收紧字距
+   并降 0.5px 字号：视觉上与其他语言同权重，但最长项能一行放下。 */
+html[lang="ru"] .set-nav-item {
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.set-content {
+  flex: 1;
+  min-width: 0;
+  padding: 0 24px 0 22px;
+  overflow-y: auto;
+}
+
+.set-page { display: none; }
+.set-page.on { display: block; }
